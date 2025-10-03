@@ -1,4 +1,4 @@
-
+Qué te ha dicho tu madre?
 // --- Variables Globales ---
 // IMPORTANTE: NO usar 'let edits = {}', usar directamente window.edits
 window.edits = window.edits || {};
@@ -46,8 +46,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // NOTA: save-visual-btn fue reemplazado por export-image-select
     document.getElementById('undo-btn').addEventListener('click', undo);
     document.getElementById('redo-btn').addEventListener('click', redo);
-    document.getElementById('font-select').addEventListener('change', (e) => applyFont(e.target.value));
-    document.getElementById('symbol-select').addEventListener('change', (e) => addNewSymbol(e.target.value));
+    
+    // ✅ MEJORADO: Auto-cerrar selectores después de selección
+    document.getElementById('font-select').addEventListener('change', (e) => {
+        applyFont(e.target.value);
+        e.target.blur(); // Cerrar desplegable automáticamente
+    });
+    
+    document.getElementById('symbol-select').addEventListener('change', (e) => {
+        addNewSymbol(e.target.value);
+        e.target.blur(); // Cerrar desplegable automáticamente
+    });
 
     // Listeners de la Paleta de Edición Individual
     document.getElementById('zoom-in-btn').addEventListener('click', () => updateScale(1.1));
@@ -71,6 +80,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Listener para copiar y pegar
     window.addEventListener('keydown', handleCopyPaste);
+    
+    // ✅ NUEVO: Auto-cerrar TODOS los selectores al usarlos (prevenir "pegado")
+    document.querySelectorAll('select').forEach(select => {
+        select.addEventListener('change', () => {
+            // Pequeño delay para permitir que el valor se procese
+            setTimeout(() => select.blur(), 50);
+        });
+    });
+    
+    console.log('[UI] Selectores configurados para auto-cierre');
 });
 
 function initEditing() {
@@ -1109,31 +1128,61 @@ document.getElementById('save-btn')?.addEventListener('click', async () => {
   
   const code = codeEditor.value;
   
+  if (!code.trim()) {
+    alert('No hay código para exportar');
+    return;
+  }
+  
   try {
-    // Generar XML desde código actualizado (con ediciones)
-    const resp = await fetch('/render-xml', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ code })
-    });
+    console.log('[Export XML] Usando API nativa de pywebview...');
     
-    if (!resp.ok) throw new Error('Error al generar XML');
+    // Verificar si pywebview API está disponible
+    if (typeof pywebview === 'undefined' || typeof pywebview.api === 'undefined') {
+      console.warn('[Export XML] API pywebview no disponible, usando fallback HTTP');
+      // Fallback a método HTTP para desarrollo
+      const resp = await fetch('/export-xml', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ code })
+      });
+      
+      if (!resp.ok) {
+        const error = await resp.text();
+        throw new Error(error || 'Error al exportar XML');
+      }
+      
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `partitura_${Date.now()}.musicxml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.createObjectURL(url), 100);
+      
+      console.log('[Export XML] ✅ Archivo descargado (fallback HTTP)');
+      return;
+    }
     
-    const xml = await resp.text();
+    // Usar API nativa de pywebview (diálogo nativo de guardado)
+    const result = await pywebview.api.save_xml_file(code);
     
-    // Descargar archivo
-    const blob = new Blob([xml], {type: 'application/vnd.recordare.musicxml+xml'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'partitura_editada.musicxml';
-    a.click();
-    URL.revokeObjectURL(url);
+    if (result.success) {
+      console.log(`[Export XML] ✅ Archivo guardado: ${result.filepath}`);
+      alert(`✅ Archivo guardado correctamente en:\n${result.filepath}`);
+    } else {
+      if (result.error === 'Guardado cancelado') {
+        console.log('[Export XML] Usuario canceló guardado');
+      } else {
+        console.error('[Export XML] ❌ Error:', result.error);
+        alert(`Error al exportar XML:\n${result.error}`);
+      }
+    }
     
-    console.log('[Export] XML con ediciones descargado');
   } catch (err) {
-    console.error('[Export] Error:', err);
-    alert('Error al exportar XML: ' + err.message);
+    console.error('[Export XML] ❌ Error:', err);
+    alert(`Error al exportar XML:\n${err.message}`);
   }
 });
 
@@ -1715,7 +1764,14 @@ function hideContextMenu() {
 
 // Listener para menú contextual
 document.addEventListener('contextmenu', (e) => {
-    // ✅ CORREGIDO: Ocultar menú existente SIEMPRE al hacer click derecho
+    // ✅ MEJORADO: No mostrar menú si estamos sobre selectores u otros elementos del toolbar
+    if (e.target.closest('select, #main-toolbar, #edit-palette, #multi-select-palette, button, input, textarea')) {
+        console.log('[Context Menu] Click derecho ignorado: sobre elemento de interfaz');
+        hideContextMenu();
+        return; // Permitir comportamiento por defecto (cerrar selector)
+    }
+    
+    // Ocultar menú existente
     hideContextMenu();
     
     // Solo mostrar en elementos seleccionables o si hay selección activa
@@ -1728,7 +1784,7 @@ document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     
-    // ✅ CORREGIDO: Mostrar menú con timeout para evitar conflictos
+    // Mostrar menú con timeout para evitar conflictos
     setTimeout(() => {
         showContextMenu(e.pageX, e.pageY);
         console.log('[Context Menu] Menú activado con click derecho');
