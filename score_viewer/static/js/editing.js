@@ -93,7 +93,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Hacer la toolbar arrastrable
     if (window.interact) {
-        interact(mainToolbar).draggable({ inertia: true, listeners: { move: dragToolbarListener } });
+        interact(mainToolbar).draggable({ 
+            inertia: true, 
+            listeners: { move: dragToolbarListener },
+            // ✅ NO arrastrar si se inicia sobre un select u otro control
+            ignoreFrom: 'select, input, textarea, button'
+        });
     }
 
     // Listener para copiar y pegar
@@ -894,6 +899,13 @@ function dragMoveListener(event) {
             showMultipleSelectionPalette();
         }
         
+        // ✅ NUEVO: Forzar repaint para evitar ghosting en empaquetado
+        requestAnimationFrame(() => {
+            selectedElements.forEach(el => {
+                el.style.transform = el.style.transform;
+            });
+        });
+        
         console.log(`[Multi-Select] Movidos ${selectedElements.size} elemento(s) juntos`);
         return;
     }
@@ -922,6 +934,11 @@ function dragMoveListener(event) {
     }
     
     applyTransform(target);
+    
+    // ✅ NUEVO: Forzar repaint para evitar ghosting en empaquetado
+    requestAnimationFrame(() => {
+        target.style.transform = target.style.transform;
+    });
 
     // Reposicionar la paleta de edición durante el arrastre
     if (target === selectedElement) {
@@ -1756,15 +1773,19 @@ function hideContextMenu() {
 
 // Listener para menú contextual
 document.addEventListener('contextmenu', (e) => {
-    // Solo mostrar en elementos seleccionables o si hay selección activa
-    const clickedElement = e.target.closest('#osmd-container text, #annotation-svg text');
+    // ✅ NO mostrar menú si es sobre dropdown, toolbar o el SVG principal
     const isOnSelectDropdown = e.target.closest('select');
+    const isOnToolbar = e.target.closest('#main-toolbar, #edit-palette, #multi-select-palette');
+    const isSVGMain = e.target.id === 'sheet-music-svg' || e.target.closest('#sheet-music-svg');
     
-    // ✅ NO mostrar menú si se hace click derecho sobre un dropdown
-    if (isOnSelectDropdown) {
-        console.log('[Context Menu] Click derecho en dropdown, ignorado');
+    if (isOnSelectDropdown || isOnToolbar || isSVGMain) {
+        console.log('[Context Menu] Click derecho en área no permitida, ignorado');
+        hideContextMenu();
         return;
     }
+    
+    // Solo mostrar en elementos seleccionables o si hay selección activa
+    const clickedElement = e.target.closest('#osmd-container text, #annotation-svg text');
     
     // ✅ Ocultar menú existente SIEMPRE
     hideContextMenu();
@@ -1781,16 +1802,16 @@ document.addEventListener('contextmenu', (e) => {
     console.log('[Context Menu] Menú activado');
 });
 
-// ✅ NUEVO: Cerrar menú contextual con cualquier click izquierdo en cualquier parte
+// ✅ MEJORADO: Cerrar menú contextual con cualquier click (incluyendo dentro del SVG)
 document.addEventListener('click', (e) => {
-    // Si el menú está visible y NO se clickó dentro del menú
+    // Si el menú está visible y NO se clickó dentro del menú mismo
     if (contextMenu && contextMenu.style.display === 'block') {
         if (!contextMenu.contains(e.target)) {
             hideContextMenu();
-            console.log('[Context Menu] Cerrado por click fuera');
+            console.log('[Context Menu] Cerrado por click');
         }
     }
-});
+}, true); // ✅ useCapture=true para capturar antes que otros listeners
 
 // ✅ NUEVO: Cerrar menú contextual al presionar Escape
 document.addEventListener('keydown', (e) => {
