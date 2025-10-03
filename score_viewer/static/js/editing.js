@@ -1115,38 +1115,22 @@ document.getElementById('save-btn')?.addEventListener('click', async () => {
   }
   
   try {
-    console.log('[Export XML] Usando API nativa de pywebview...');
+    console.log('[Export XML] Intentando usar API nativa...');
     
-    // Verificar si pywebview API está disponible
+    // Esperar a que pywebview se inicialice (importante en app empaquetada)
+    let attempts = 0;
+    while (attempts < 10 && (typeof pywebview === 'undefined' || typeof pywebview.api === 'undefined')) {
+      console.log(`[Export XML] Esperando pywebview... intento ${attempts + 1}`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
     if (typeof pywebview === 'undefined' || typeof pywebview.api === 'undefined') {
-      console.warn('[Export XML] API pywebview no disponible, usando fallback HTTP');
-      // Fallback a método HTTP para desarrollo
-      const resp = await fetch('/export-xml', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ code })
-      });
-      
-      if (!resp.ok) {
-        const error = await resp.text();
-        throw new Error(error || 'Error al exportar XML');
-      }
-      
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `partitura_${Date.now()}.musicxml`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.createObjectURL(url), 100);
-      
-      console.log('[Export XML] ✅ Archivo descargado (fallback HTTP)');
-      return;
+      throw new Error('pywebview API no disponible. Reinicia la aplicación.');
     }
     
     // Usar API nativa de pywebview (diálogo nativo de guardado)
+    console.log('[Export XML] ✅ API disponible, llamando a save_xml_file...');
     const result = await pywebview.api.save_xml_file(code);
     
     if (result.success) {
@@ -1162,8 +1146,8 @@ document.getElementById('save-btn')?.addEventListener('click', async () => {
     }
     
   } catch (err) {
-    console.error('[Export XML] ❌ Error:', err);
-    alert(`Error al exportar XML:\n${err.message}`);
+    console.error('[Export XML] ❌ Error fatal:', err);
+    alert(`Error al exportar XML:\n${err.message}\n\nPor favor, reinicia la aplicación.`);
   }
 });
 
