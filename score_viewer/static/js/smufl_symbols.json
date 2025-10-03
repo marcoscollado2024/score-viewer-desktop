@@ -1,0 +1,78 @@
+{
+"Claves": [
+{ "nombre": "Clave de Sol (G)", "code": "E050", "char": "" },
+{ "nombre": "Clave de Fa (F)", "code": "E062", "char": "" },
+{ "nombre": "Clave de Do (C)", "code": "E05C", "char": "" },
+{ "nombre": "Sol 8va bassa", "code": "E052", "char": "" },
+{ "nombre": "Fa en 3ª", "code": "E064", "char": "" }
+],
+"Figuras de notas (cabezas)": [
+{ "nombre": "Redonda (head)", "code": "E0A2", "char": "" },
+{ "nombre": "Blanca (head)", "code": "E0A3", "char": "" },
+{ "nombre": "Negra (head)", "code": "E0A4", "char": "" },
+{ "nombre": "Cruz (x)", "code": "E0A9", "char": "" },
+{ "nombre": "Triángulo", "code": "E0B3", "char": "" }
+],
+"Silencios": [
+{ "nombre": "Redonda", "code": "E4E2", "char": "" },
+{ "nombre": "Blanca", "code": "E4E3", "char": "" },
+{ "nombre": "Negra", "code": "E4E5", "char": "" },
+{ "nombre": "Corchea", "code": "E4E6", "char": "" },
+{ "nombre": "Semicorchea", "code": "E4E7", "char": "" },
+{ "nombre": "Fusa", "code": "E4E8", "char": "" },
+{ "nombre": "Semifusa", "code": "E4E9", "char": "" },
+{ "nombre": "Brevis", "code": "E4E1", "char": "" }
+],
+"Alteraciones": [
+{ "nombre": "Sostenido", "code": "E262", "char": "" },
+{ "nombre": "Bemol", "code": "E260", "char": "" },
+{ "nombre": "Becuadro", "code": "E261", "char": "" },
+{ "nombre": "Doble sostenido", "code": "E263", "char": "" },
+{ "nombre": "Doble bemol", "code": "E264", "char": "" },
+{ "nombre": "Sostenido micro", "code": "E2F4", "char": "" },
+{ "nombre": "Bemol micro", "code": "E2F2", "char": "" }
+],
+"Dinámicas (letras)": [
+{ "nombre": "pp", "code": "E523", "char": "" },
+{ "nombre": "p", "code": "E520", "char": "" },
+{ "nombre": "mp", "code": "E521", "char": "" },
+{ "nombre": "mf", "code": "E522", "char": "" },
+{ "nombre": "f", "code": "E522", "char": "" },
+{ "nombre": "ff", "code": "E524", "char": "" },
+{ "nombre": "sfz","code": "E535", "char": "" }
+],
+"Reguladores (hairpins)": [
+{ "nombre": "Crescendo <", "code": "E53E", "char": "" },
+{ "nombre": "Diminuendo >", "code": "E53F", "char": "" }
+],
+"Articulaciones": [
+{ "nombre": "Staccato", "code": "E4A0", "char": "" },
+{ "nombre": "Acento", "code": "E4A2", "char": "" },
+{ "nombre": "Tenuto", "code": "E4A4", "char": "" },
+{ "nombre": "Marcato", "code": "E4AC", "char": "" },
+{ "nombre": "Fermata", "code": "E4C0", "char": "" }
+],
+"Adornos": [
+{ "nombre": "Trino", "code": "E566", "char": "" },
+{ "nombre": "Mordente", "code": "E566", "char": "" },
+{ "nombre": "Mordente invertido", "code": "E567", "char": "" },
+{ "nombre": "Grupeto", "code": "E56A", "char": "" },
+{ "nombre": "Apojiatura (grace)", "code": "E560", "char": "" }
+],
+"Repeticiones / navegación": [
+{ "nombre": "Segno", "code": "E047", "char": "\uE047" },
+{ "nombre": "Coda", "code": "E048", "char": "\uE048" },
+{ "nombre": "D.C. (Da Capo)", "text": "D.C." },
+{ "nombre": "D.S. (Dal Segno)", "text": "D.S." },
+{ "nombre": "A la Coda", "text": "To Coda" },
+{ "nombre": "Fine", "text": "Fine" }
+],
+"Barras de Repetición": [
+{ "nombre": "Repetición inicio", "code": "E040", "char": "\uE040" },
+{ "nombre": "Repetición fin", "code": "E041", "char": "\uE041" }
+],
+"Voltas": [
+{ "nombre": "1ª vez", "text": "1." },
+{ "nombre": "2ª vez", "text": "2." }
+]
+}

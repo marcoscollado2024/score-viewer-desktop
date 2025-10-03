@@ -1,0 +1,40 @@
+{
+  "name": "Score Viewer",
+  "short_name": "Score Viewer",
+  "description": "Visualizador y editor de partituras musicales con reproducción MIDI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#667eea",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva Partitura",
+      "short_name": "Nueva",
+      "description": "Crear una nueva partitura",
+      "url": "/?action=new",
+      "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "categories": ["music", "education", "productivity"],
+  "screenshots": []
+}

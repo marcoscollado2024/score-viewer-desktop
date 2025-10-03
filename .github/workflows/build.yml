@@ -1,0 +1,99 @@
+name: Build Score Viewer
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r score_viewer/requirements.txt
+        pip install pyinstaller
+    
+    - name: Convert icon to ICO
+      run: |
+        python -c "from PIL import Image; img = Image.open('app_icon.icns'); img.save('app_icon.ico', format='ICO')"
+      continue-on-error: true
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --name "Score Viewer" --windowed --onefile --icon=app_icon.ico --add-data "score_viewer/templates;templates" --add-data "score_viewer/static;static" score_viewer/launcher.py
+    
+    - name: Upload Windows executable
+      uses: actions/upload-artifact@v3
+      with:
+        name: ScoreViewer-Windows
+        path: dist/Score Viewer.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r score_viewer/requirements.txt
+        pip install pyinstaller
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --name "Score Viewer" --windowed --onedir --icon=app_icon.icns --add-data "score_viewer/templates:templates" --add-data "score_viewer/static:static" score_viewer/launcher.py
+    
+    - name: Create DMG
+      run: |
+        mkdir -p dmg_build
+        cp -R "dist/Score Viewer.app" dmg_build/
+        ln -s /Applications dmg_build/Applications
+        hdiutil create -volname "Score Viewer" -srcfolder dmg_build -ov -format UDZO "ScoreViewer-macOS.dmg"
+    
+    - name: Upload macOS DMG
+      uses: actions/upload-artifact@v3
+      with:
+        name: ScoreViewer-macOS
+        path: ScoreViewer-macOS.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r score_viewer/requirements.txt
+        pip install pyinstaller
+    
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --name "Score Viewer" --windowed --onefile --add-data "score_viewer/templates:templates" --add-data "score_viewer/static:static" score_viewer/launcher.py
+    
+    - name: Upload Linux executable
+      uses: actions/upload-artifact@v3
+      with:
+        name: ScoreViewer-Linux
+        path: dist/Score Viewer

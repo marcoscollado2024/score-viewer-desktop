@@ -1,0 +1,40 @@
+# Archivos de empaquetado PyInstaller
+build/
+dist/
+*.spec
+*.pyc
+__pycache__/
+venv_build/
+dmg_temp/
+
+# Archivos generados
+*.dmg
+app_icon.ico
+
+# Logs
+*.log
+flask.log
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos temporales
+*.tmp
+*.bak
+*~
+
+# Node modules (si los hay)
+node_modules/
+package-lock.json

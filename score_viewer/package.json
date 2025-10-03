@@ -1,0 +1,12 @@
+{
+  "name": "score_viewer",
+  "version": "1.0.0",
+  "description": "## 1. Objetivo Principal",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

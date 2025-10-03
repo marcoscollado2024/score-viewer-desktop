@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Score Viewer</title>
+  
+  <!-- PWA Meta Tags -->
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <meta name="theme-color" content="#667eea">
+  <meta name="description" content="Visualizador y editor de partituras musicales con reproducción MIDI">
+  
+  <!-- Apple Touch Icons -->
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Score Viewer">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+  <link rel="icon" type="image/png" sizes="512x512" href="{{ url_for('static', filename='icons/icon-512.png') }}">
+  
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- CodeMirror para resaltado de sintaxis (ligero) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/material-darker.min.css">
+  <style>
+    /* Estilo para placeholder de CodeMirror */
+    .CodeMirror-placeholder {
+      color: #5a6576 !important;
+      font-style: italic;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+<body>
+  <h1>Score Viewer</h1>
+
+  <div class="container">
+    <div class="editor-container" id="editor-panel">
+      <textarea id="code-editor" rows="30" cols="80" placeholder="Aquí pega tu código Music21 y pulsa 'Generar Partitura' ✨
+
+Ejemplo:
+from music21 import stream, note, clef, key
+
+s = stream.Score()
+p = stream.Part()
+p.append(clef.TrebleClef())
+p.append(key.Key('C'))
+p.append(note.Note('C4', quarterLength=1))
+p.append(note.Note('D4', quarterLength=1))
+p.append(note.Note('E4', quarterLength=1))
+p.append(note.Note('F4', quarterLength=1))
+s.append(p)
+
+score = s"></textarea>
+      <div class="button-group">
+        <button id="render-btn">Generar Partitura</button>
+        <button id="save-btn">Guardar y Descargar XML</button>
+        <button id="reset-btn">🧹 Limpiar Código</button>
+      </div>
+    </div>
+
+    <div class="resizer" id="dragbar"></div>
+
+    <div class="viewer-container" id="viewer-panel">
+      <div id="main-toolbar" class="main-toolbar">
+        <button id="undo-btn" title="Deshacer">↩️</button>
+        <button id="redo-btn" title="Rehacer">↪️</button>
+        <select id="export-image-select" title="Exportar Imagen">
+          <option value="">📤</option>
+          <option value="png">PNG</option>
+          <option value="svg">SVG</option>
+        </select>
+        
+        <div class="toolbar-divider"></div>
+        
+        <!-- Controles de reproducción MIDI -->
+        <button id="play-btn" title="Reproducir">▶️</button>
+        <button id="stop-btn" title="Detener">⏹️</button>
+        <select id="instrument-select" title="Seleccionar Instrumento">
+          <option value="piano">🎹 Piano</option>
+          <option value="strings">🎻 Cuerdas</option>
+          <option value="horns">🎺 Vientos</option>
+          <option value="rhodes">🎸 Rhodes</option>
+          <option value="pad">🎛️ Synth Pad</option>
+        </select>
+        
+        <!-- Controles de acompañamiento -->
+        <button id="chords-toggle" title="Reproducir cifrados de acordes" style="font-size: 0.7em; padding: 4px 6px; background: #444; color: #999; border: 1px solid #666;">
+          Dm
+        </button>
+        
+        <div class="toolbar-divider"></div>
+        
+        <div class="layout-buttons">
+          <button class="layout-btn" data-measures="1">1</button>
+          <button class="layout-btn active" data-measures="2">2</button>
+          <button class="layout-btn" data-measures="3">3</button>
+          <button class="layout-btn" data-measures="4">4</button>
+        </div>
+        
+        <select id="font-select" title="Cambiar Fuente del Texto Seleccionado">
+            <option value="">𝐀</option>
+            <option value="Times New Roman">Times</option>
+            <option value="Arial">Arial</option>
+            <option value="Courier New">Courier</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Verdana">Verdana</option>
+        </select>
+        
+        <select id="color-select" title="Color de Notas">
+          <option value="">🎨</option>
+          <option value="#000000">⚫ Negro</option>
+          <option value="#FF0000">🔴 Rojo</option>
+          <option value="#0000FF">🔵 Azul</option>
+          <option value="#00AA00">🟢 Verde</option>
+          <option value="#FF8800">🟠 Naranja</option>
+          <option value="#AA00FF">🟣 Morado</option>
+          <option value="#FFFF00">🟡 Amarillo</option>
+        </select>
+        
+        <select id="symbol-select" title="Añadir Símbolo Musical">
+            <option value="">𝄞</option>
+            <optgroup label="Dinámicas">
+                <option value="pp">pp (pianissimo)</option>
+                <option value="p">p (piano)</option>
+                <option value="mp">mp (mezzo-piano)</option>
+                <option value="mf">mf (mezzo-forte)</option>
+                <option value="f">f (forte)</option>
+                <option value="ff">ff (fortissimo)</option>
+            </optgroup>
+            <optgroup label="Figuras">
+                <option value="♩">♩ (Negra)</option>
+                <option value="♪">♪ (Corchea)</option>
+                <option value="♫">♫ (Dos corcheas)</option>
+                <option value="♬">♬ (Semicorchea)</option>
+                <option value="o">o (Redonda)</option>
+                <option value="d">d (Blanca)</option>
+            </optgroup>
+            <optgroup label="Alteraciones">
+                <option value="#"># (Sostenido)</option>
+                <option value="♭">♭ (Bemol)</option>
+                <option value="♮">♮ (Becuadro)</option>
+                <option value="##">## (Doble sostenido)</option>
+                <option value="♭♭">♭♭ (Doble bemol)</option>
+            </optgroup>
+            <optgroup label="Articulaciones">
+                <option value="·">· (Staccato)</option>
+                <option value=">"> > (Acento)</option>
+                <option value="-">- (Tenuto)</option>
+                <option value="^">^ (Marcato)</option>
+                <option value="U">U (Fermata)</option>
+            </optgroup>
+            <optgroup label="Reguladores y signos">
+                <option value="<">< (Crescendo)</option>
+                <option value=">"> > (Diminuendo)</option>
+                <option value=",">٩ (Respiración)</option>
+            </optgroup>
+            <optgroup label="Repeticiones">
+                <option value="|:">|: (Inicio repetición)</option>
+                <option value=":|">:| (Fin repetición)</option>
+                <option value="D.C.">D.C. (Da Capo)</option>
+                <option value="D.S.">D.S. (Dal Segno)</option>
+                <option value="§">§ (Segno)</option>
+                <option value="⊗">⊗ (Coda)</option>
+            </optgroup>
+        </select>
+      </div>
+      <div id="score-output">
+        <!-- Paleta de edición individual -->
+        <div id="edit-palette" class="edit-palette" style="display: none;">
+            <button id="zoom-in-btn" title="Aumentar tamaño">+</button>
+            <button id="zoom-out-btn" title="Reducir tamaño">-</button>
+            <button id="delete-btn" title="Eliminar">🗑️</button>
+        </div>
+        
+        <!-- Paleta de edición para multi-selección -->
+        <div id="multi-select-palette" class="multi-select-palette" style="display: none;">
+            <button id="multi-zoom-in-btn" title="Aumentar tamaño grupo">+</button>
+            <button id="multi-zoom-out-btn" title="Reducir tamaño grupo">-</button>
+            <button id="multi-delete-btn" title="Eliminar grupo">🗑️</button>
+        </div>
+      </div>
+      <div id="error-output" class="error"></div>
+    </div>
+  </div>
+
+  <!-- CodeMirror -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/display/placeholder.min.js"></script>
+  <!-- Soundfont Player para reproducción con instrumentos reales -->
+  <script src="https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js"></script>
+  <!-- @tonejs/midi para parsear archivos MIDI (más robusto) -->
+  <script src="https://unpkg.com/@tonejs/midi"></script>
+  <!-- OSMD -->
+  <script src="{{ url_for('static', filename='js/opensheetmusicdisplay.min.js') }}"></script>
+  <!-- Tu JS -->
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <!-- Edición -->
+  <script src="{{ url_for('static', filename='js/interact.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/editing.js') }}"></script>
+  
+  <!-- Inicializar CodeMirror -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const textarea = document.getElementById('code-editor');
+      if (textarea && window.CodeMirror) {
+        const editor = CodeMirror.fromTextArea(textarea, {
+          mode: 'python',
+          theme: 'material-darker',
+          lineNumbers: true,
+          lineWrapping: true,
+          indentUnit: 4,
+          tabSize: 4,
+          indentWithTabs: false,
+          autofocus: false,
+          placeholder: textarea.placeholder // Preservar placeholder
+        });
+        
+        // Exponer editor globalmente para acceso desde main.js
+        window.codeMirrorEditor = editor;
+        
+        // Sincronizar con textarea original para que main.js funcione
+        editor.on('change', () => {
+          textarea.value = editor.getValue();
+        });
+        
+        console.log('[CodeMirror] Editor inicializado con resaltado Python');
+      }
+    });
+  </script>
+  
+  <!-- Registrar Service Worker para PWA -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/service-worker.js')
+          .then(registration => {
+            console.log('[PWA] Service Worker registrado:', registration.scope);
+          })
+          .catch(error => {
+            console.error('[PWA] Error registrando Service Worker:', error);
+          });
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,718 @@
+/* ====== Diseño base / variables ====== */
+:root{
+  --bg: #667eea;
+  --panel: #ffffff;
+  --panel-2:#f8f9fa;
+  --text:#1a202c;
+  --muted:#718096;
+  --primary:#667eea;
+  --primary-600:#5a67d8;
+  --border:#e2e8f0;
+  --success:#48bb78;
+  --error:#f56565;
+  --code-bg:#f7fafc;
+  --code-border:#e2e8f0;
+  --shadow: 0 10px 30px rgba(102,126,234,.2);
+}
+
+/* Soporte claro si el usuario lo fuerza */
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#f6f7fb;
+    --panel:#ffffff;
+    --panel-2:#f9fafc;
+    --text:#1d2330;
+    --muted:#5b6576;
+    --primary:#2d6cf6;
+    --primary-600:#2253c4;
+    --border:#e6e9f2;
+    --code-bg:#f3f5fa;
+    --code-border:#e6e9f2;
+    --shadow: 0 10px 24px rgba(28,36,64,.08);
+  }
+}
+
+*{ box-sizing:border-box; }
+
+html, body{
+  height:100%;
+}
+
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
+  background: url('/static/images/background.png') center/cover no-repeat fixed;
+  color:var(--text);
+  line-height:1.55;
+  padding:24px;
+  position: relative;
+}
+
+/* Overlay semi-transparente para mejorar legibilidad */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: -1;
+}
+
+/* ====== Título con Logo ====== */
+h1{
+  margin:0 0 24px;
+  text-align:center;
+  font-weight:700;
+  font-size: 42px;
+  letter-spacing:-1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: #1a202c;
+  font-family: 'Poppins', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  text-shadow: 
+    0 2px 4px rgba(255, 255, 255, 0.8),
+    0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+h1::before {
+  content: '';
+  display: inline-block;
+  width: 180px;
+  height: 60px;
+  background: url('/static/images/logo.png') center/contain no-repeat;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.15));
+}
+
+/* ====== Layout ====== */
+.container{
+  display:flex;
+  gap:0;
+  align-items:stretch;
+  height: calc(100vh - 120px); /* Altura dinámica */
+  position: relative;
+}
+
+#editor-panel {
+  flex: 0 0 50%; /* Ancho inicial 50% */
+  min-width: 200px;
+  overflow: auto;
+}
+
+#viewer-panel {
+  flex: 1; /* Toma el resto del espacio */
+  min-width: 200px;
+  overflow: auto;
+}
+
+/* Tirador redimensionable */
+.resizer {
+  width: 6px;
+  background: var(--border);
+  cursor: col-resize;
+  position: relative;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+
+.resizer:hover {
+  background: var(--primary);
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 40px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+@media (max-width: 980px){
+  .container{
+    flex-direction: column;
+    height: auto;
+  }
+  .resizer {
+    display: none;
+  }
+  #editor-panel, #viewer-panel {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+}
+
+/* Paneles */
+.editor-container,
+.viewer-container{
+  background: linear-gradient(135deg, var(--panel) 0%, color-mix(in srgb, var(--panel) 97%, black) 100%);
+  border:1px solid var(--border);
+  border-radius:16px;
+  box-shadow: 0 15px 50px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.03) inset;
+  padding:20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-container::before,
+.viewer-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(79,140,255,.3), transparent);
+}
+
+/* ====== Editor ====== */
+#code-editor{
+  width:100%;
+  min-height:520px;
+  resize:vertical;
+  border:1px solid var(--code-border);
+  background:var(--code-bg);
+  color:var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size:14px;
+  line-height:1.5;
+  border-radius:12px;
+  padding:14px 16px;
+  outline:none;
+  transition:border-color .15s ease, box-shadow .15s ease;
+}
+#code-editor:focus{
+  border-color:var(--primary);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+/* Grupo de botones */
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+/* Estilo común para botones */
+#render-btn, #save-btn, #reset-btn {
+  padding:10px 18px;
+  font-size:15px;
+  font-weight:600;
+  border:none;
+  color:#fff;
+  border-radius:10px;
+  cursor:pointer;
+  transition: transform .06s ease, box-shadow .15s ease, filter .15s ease, background .15s ease;
+  font-family: inherit;
+}
+
+#render-btn {
+  background:linear-gradient(180deg, var(--primary), var(--primary-600));
+  box-shadow:0 6px 16px rgba(79,140,255,.3);
+}
+
+#render-btn:hover{
+  filter:saturate(1.08) brightness(1.05);
+  box-shadow:0 8px 20px rgba(79,140,255,.4);
+  transform: translateY(-1px);
+}
+
+#render-btn:active {
+  transform: translateY(0px);
+  box-shadow:0 4px 12px rgba(79,140,255,.3);
+}
+
+#save-btn {
+  background: linear-gradient(180deg, #5a6478, #434b5a);
+  box-shadow: 0 6px 16px rgba(90, 100, 120, 0.25);
+}
+
+#save-btn:hover {
+  filter: saturate(1.08) brightness(1.05);
+  box-shadow: 0 8px 20px rgba(90, 100, 120, 0.35);
+  transform: translateY(-1px);
+}
+
+#save-btn:active {
+  transform: translateY(0px);
+  box-shadow: 0 4px 12px rgba(90, 100, 120, 0.25);
+}
+
+#reset-btn {
+  background: linear-gradient(180deg, #e74c3c, #c0392b);
+  box-shadow: 0 6px 16px rgba(231, 76, 60, 0.3);
+}
+
+#reset-btn:hover {
+  filter: saturate(1.08) brightness(1.05);
+  box-shadow: 0 8px 20px rgba(231, 76, 60, 0.4);
+  transform: translateY(-1px);
+}
+
+#reset-btn:active {
+  transform: translateY(0px);
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+/* ====== Visor ====== */
+.viewer-container{
+  position: relative; /* Necesario para posicionar la nueva toolbar */
+  background:var(--panel-2);
+  min-height:520px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+/* ====== Toolbar Principal - COMPACTO CON ICONOS (un poco más grande) ====== */
+.main-toolbar {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: linear-gradient(135deg, #4f8cff 0%, #3e73d6 100%);
+  border: none;
+  border-radius: 7px;
+  padding: 3px;
+  box-shadow: 0 4px 12px rgba(79, 140, 255, 0.4);
+  z-index: 1010;
+  cursor: move;
+}
+
+.main-toolbar button {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.15s ease;
+}
+
+.main-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.main-toolbar button:active {
+  transform: scale(0.95);
+}
+
+.main-toolbar select {
+  width: 28px;
+  height: 28px;
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  text-align: center;
+  text-align-last: center;
+}
+
+.main-toolbar select:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.main-toolbar select:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Selector de instrumentos - más ancho */
+#instrument-select {
+  width: 32px !important;
+  font-size: 14px !important;
+  text-align: left !important;
+  padding-left: 4px !important;
+}
+
+.toolbar-divider {
+  width: 100%;
+  height: 1px;
+  background-color: rgba(255, 255, 255, 0.2);
+  margin: 2px 0;
+}
+
+.layout-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+}
+
+.layout-btn {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  font-weight: 700;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-radius: 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.layout-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.layout-btn.active {
+  background: rgba(255, 255, 255, 0.4);
+  font-weight: 900;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
+
+/* Donde OSMD renderiza la partitura */
+#score-output {
+  position: relative; /* Necesario para posicionar la paleta de edición */
+  width: 100%;
+  overflow: visible; /* Permitir que textos se salgan del marco */
+  border:1px dashed var(--border);
+  border-radius:12px;
+  padding:12px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.02), rgba(0,0,0,.02));
+}
+
+/* Contenedor OSMD también permite overflow */
+#osmd-container {
+  overflow: visible;
+}
+
+/* music21 crea #vexflow-output y dentro un <svg> de VexFlow */
+#vexflow-output{
+  display:block;
+  width:max-content;         /* permite scroll horizontal si la partitura es ancha */
+  max-width:100%;
+}
+
+/* Suavizado y nitidez del SVG */
+#vexflow-output svg {
+  max-width: 100%;
+  height:auto;
+  shape-rendering: geometricPrecision;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Asegurar que todos los elementos editables escalen desde su centro */
+#osmd-container text, #sheet-music-svg {
+  transform-origin: center !important;
+}
+
+/* ====== Mensajes de error / estado ====== */
+.error{
+  color:var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--error) 45%, transparent);
+  padding:10px 12px;
+  border-radius:10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+
+/* ====== Detalles de accesibilidad ====== */
+/* Respetar usuarios con “reduced motion” */
+@media (prefers-reduced-motion: reduce){
+  *{ transition:none !important; animation:none !important; }
+}
+
+/* Scrollbars sutiles (solo donde aplica) */
+#code-editor, #score-output{
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#code-editor::-webkit-scrollbar,
+#score-output::-webkit-scrollbar{ height:10px; width:10px; }
+#code-editor::-webkit-scrollbar-thumb,
+#score-output::-webkit-scrollbar-thumb{
+  background:var(--border);
+  border-radius:20px;
+}
+#code-editor::-webkit-scrollbar-track,
+#score-output::-webkit-scrollbar-track{ background:transparent; }
+
+/* ====== Tipografía menor ====== */
+.editor-container label,
+.viewer-container label,
+small, .hint{
+  color:var(--muted);
+}
+
+/* Estilo para elementos SVG seleccionados */
+.selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.multi-selected {
+  outline: 3px solid #0066ff !important;
+  outline-offset: 3px;
+  background: rgba(0, 102, 255, 0.25) !important;
+  box-shadow: 0 0 10px rgba(0, 102, 255, 0.5) !important;
+}
+
+/* Paleta de edición individual */
+.edit-palette {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  background: linear-gradient(135deg, var(--panel) 0%, color-mix(in srgb, var(--panel) 95%, black) 100%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 10px 35px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.06) inset;
+  backdrop-filter: blur(10px);
+  z-index: 1000;
+  transition: opacity 0.15s ease, transform 0.2s ease;
+  animation: fadeInUp 0.2s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.edit-palette button {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+  font-weight: bold;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.edit-palette button:hover {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-600) 100%);
+  color: white;
+  border-color: var(--primary);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px rgba(79, 140, 255, 0.5);
+}
+
+.edit-palette button:active {
+  transform: translateY(0) scale(1);
+}
+
+/* Paleta de edición para multi-selección */
+.multi-select-palette {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  background: linear-gradient(135deg, #00cc66 5%, var(--panel) 15%, color-mix(in srgb, var(--panel) 95%, black) 100%);
+  border: 1px solid color-mix(in srgb, #00cc66 50%, var(--border));
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 10px 35px rgba(0,204,102,.3), 0 0 0 1px rgba(0,204,102,.15) inset;
+  backdrop-filter: blur(10px);
+  z-index: 1001;
+  transition: opacity 0.15s ease, transform 0.2s ease;
+  animation: fadeInUp 0.2s ease;
+}
+
+.multi-select-palette button {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+  font-weight: bold;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.multi-select-palette button:hover {
+  background: linear-gradient(135deg, #00cc66 0%, #00aa55 100%);
+  color: white;
+  border-color: #00ff88;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 204, 102, 0.5);
+}
+
+.multi-select-palette button:active {
+  transform: translateY(0) scale(1);
+}
+
+/* Bounding box para grupo seleccionado */
+.multi-selection-box {
+  position: absolute;
+  border: 3px solid #00cc66;
+  background: rgba(0, 204, 102, 0.1);
+  pointer-events: auto;
+  z-index: 999;
+  cursor: move;
+  border-radius: 4px;
+}
+
+.multi-selection-box:hover {
+  background: rgba(0, 204, 102, 0.15);
+  border-color: #00ff88;
+}
+
+/* ====== SMuFL Font and Symbol Styles ====== */
+@font-face {
+  font-family: 'Bravura Text';
+  src: url('/static/fonts/BravuraText.otf') format('opentype');
+  font-display: swap;
+}
+
+.symbol, .smufl, .glyph {
+  font-family: 'Bravura Text', serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ====== Ocultar duplicados de OSMD ====== */
+/* OSMD tiene un bug que renderiza algunos TextExpression 2 veces */
+/* Los textos duplicados tienen Y similar pero X ligeramente diferente */
+
+/* Estrategia 1: Ocultar textos con transform (estos son los movidos por el usuario) */
+/* Los duplicados son los que NO tienen transform */
+#osmd-container text[y="197.20000000000002"]:not([style*="transform"]) {
+  display: none !important;
+}
+
+/* Estrategia 2: Ocultar textos con Y=291.2 o Y=315.4 sin transform */
+#osmd-container text[y="291.2"]:not([style*="transform"]) {
+  display: none !important;
+}
+#osmd-container text[y="315.4"]:not([style*="transform"]) {
+  display: none !important;
+}
+
+/* Estrategia 3: Si un texto tiene hermano con mismo contenido, ocultar el segundo */
+#osmd-container text:not([style*="transform"]) ~ text:not([style*="transform"]) {
+  opacity: 0.3 !important;
+  pointer-events: none !important;
+}
+
+/* ====== CodeMirror Personalizado ====== */
+.CodeMirror {
+  height: auto !important;
+  min-height: 520px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  border: 1px solid #2a2d32 !important;
+  border-radius: 12px !important;
+  background: #1e1e1e !important;
+}
+
+.CodeMirror-scroll {
+  min-height: 520px;
+}
+
+.CodeMirror-gutters {
+  background: #1e1e1e !important;
+  border-right: 1px solid #2a2d32 !important;
+}
+
+.CodeMirror-linenumber {
+  color: var(--muted) !important;
+}
+
+.CodeMirror-cursor {
+  border-left-color: var(--primary) !important;
+}
+
+.CodeMirror-selected {
+  background: rgba(79, 140, 255, 0.2) !important;
+}
+
+.CodeMirror-focused .CodeMirror-selected {
+  background: rgba(79, 140, 255, 0.3) !important;
+}
+
+/* Colores pasteles personalizados para Python */
+.cm-s-material-darker .cm-keyword {
+  color: #89b4f8 !important; /* Azul pastel */
+}
+
+.cm-s-material-darker .cm-string {
+  color: #98d0a0 !important; /* Verde pastel */
+}
+
+.cm-s-material-darker .cm-number {
+  color: #f0b088 !important; /* Naranja pastel */
+}
+
+.cm-s-material-darker .cm-def,
+.cm-s-material-darker .cm-variable-2 {
+  color: #c8a8e8 !important; /* Lila pastel */
+}
+
+.cm-s-material-darker .cm-builtin {
+  color: #88d8e0 !important; /* Cyan pastel */
+}
+
+.cm-s-material-darker .cm-comment {
+  color: #7a8896 !important; /* Gris azulado */
+  font-style: italic;
+}
+
+.cm-s-material-darker .cm-operator {
+  color: #d0b0d0 !important; /* Rosa-lila suave */
+}
+
+.cm-s-material-darker .cm-variable {
+  color: #e0c890 !important; /* Dorado suave */
+}
+
+.cm-s-material-darker .cm-property {
+  color: #a0c8f0 !important; /* Azul cielo pastel */
+}

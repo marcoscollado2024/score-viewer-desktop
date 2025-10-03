@@ -1,0 +1,4 @@
+flask
+music21
+beautifulsoup4
+pywebview
