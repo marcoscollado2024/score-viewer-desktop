@@ -1,4 +1,4 @@
-Qué te ha dicho tu madre?
+
 // --- Variables Globales ---
 // IMPORTANTE: NO usar 'let edits = {}', usar directamente window.edits
 window.edits = window.edits || {};
@@ -46,17 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // NOTA: save-visual-btn fue reemplazado por export-image-select
     document.getElementById('undo-btn').addEventListener('click', undo);
     document.getElementById('redo-btn').addEventListener('click', redo);
-    
-    // ✅ MEJORADO: Auto-cerrar selectores después de selección
-    document.getElementById('font-select').addEventListener('change', (e) => {
-        applyFont(e.target.value);
-        e.target.blur(); // Cerrar desplegable automáticamente
-    });
-    
-    document.getElementById('symbol-select').addEventListener('change', (e) => {
-        addNewSymbol(e.target.value);
-        e.target.blur(); // Cerrar desplegable automáticamente
-    });
+    document.getElementById('font-select').addEventListener('change', (e) => applyFont(e.target.value));
+    document.getElementById('symbol-select').addEventListener('change', (e) => addNewSymbol(e.target.value));
 
     // Listeners de la Paleta de Edición Individual
     document.getElementById('zoom-in-btn').addEventListener('click', () => updateScale(1.1));
@@ -80,16 +71,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Listener para copiar y pegar
     window.addEventListener('keydown', handleCopyPaste);
-    
-    // ✅ NUEVO: Auto-cerrar TODOS los selectores al usarlos (prevenir "pegado")
-    document.querySelectorAll('select').forEach(select => {
-        select.addEventListener('change', () => {
-            // Pequeño delay para permitir que el valor se procese
-            setTimeout(() => select.blur(), 50);
-        });
-    });
-    
-    console.log('[UI] Selectores configurados para auto-cierre');
 });
 
 function initEditing() {
@@ -1764,14 +1745,7 @@ function hideContextMenu() {
 
 // Listener para menú contextual
 document.addEventListener('contextmenu', (e) => {
-    // ✅ MEJORADO: No mostrar menú si estamos sobre selectores u otros elementos del toolbar
-    if (e.target.closest('select, #main-toolbar, #edit-palette, #multi-select-palette, button, input, textarea')) {
-        console.log('[Context Menu] Click derecho ignorado: sobre elemento de interfaz');
-        hideContextMenu();
-        return; // Permitir comportamiento por defecto (cerrar selector)
-    }
-    
-    // Ocultar menú existente
+    // ✅ CORREGIDO: Ocultar menú existente SIEMPRE al hacer click derecho
     hideContextMenu();
     
     // Solo mostrar en elementos seleccionables o si hay selección activa
@@ -1784,7 +1758,7 @@ document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     
-    // Mostrar menú con timeout para evitar conflictos
+    // ✅ CORREGIDO: Mostrar menú con timeout para evitar conflictos
     setTimeout(() => {
         showContextMenu(e.pageX, e.pageY);
         console.log('[Context Menu] Menú activado con click derecho');
