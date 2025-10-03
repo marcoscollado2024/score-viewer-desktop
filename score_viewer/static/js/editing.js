@@ -1715,18 +1715,24 @@ function hideContextMenu() {
 
 // Listener para menú contextual
 document.addEventListener('contextmenu', (e) => {
+    // ✅ CORREGIDO: Ocultar menú existente SIEMPRE al hacer click derecho
+    hideContextMenu();
+    
     // Solo mostrar en elementos seleccionables o si hay selección activa
     const clickedElement = e.target.closest('#osmd-container text, #annotation-svg text');
     if (!clickedElement && selectedElements.size === 0 && !selectedElement) {
         console.log('[Context Menu] Click derecho ignorado: sin elemento seleccionado');
-        // ✅ NUEVO: Ocultar menú si está visible
-        hideContextMenu();
         return;
     }
     
     e.preventDefault();
-    showContextMenu(e.pageX, e.pageY);
-    console.log('[Context Menu] Menú activado con click derecho');
+    e.stopPropagation();
+    
+    // ✅ CORREGIDO: Mostrar menú con timeout para evitar conflictos
+    setTimeout(() => {
+        showContextMenu(e.pageX, e.pageY);
+        console.log('[Context Menu] Menú activado con click derecho');
+    }, 10);
 });
 
 // Exponer funciones globalmente

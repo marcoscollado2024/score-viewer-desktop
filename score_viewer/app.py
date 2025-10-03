@@ -23,6 +23,15 @@ app.logger.setLevel(logging.INFO)
 # ============================================================
 
 CHORD_NORMALIZATION_MAP = {
+    # ===== CIFRADOS SUSPENDED (sus4, sus2) =====
+    # IMPORTANTE: Procesar ANTES de otros para capturar 7sus4, 9sus4, etc.
+    r'7sus4': '7 sus4',
+    r'9sus4': '9 sus4',
+    r'13sus4': '13 sus4',
+    r'sus4': 'sus4',
+    r'sus2': 'sus2',
+    r'sus': 'sus4',  # "sus" → "sus4" por defecto
+    
     # ===== CIFRADOS EXTENDIDOS (9, 11, 13) =====
     r'maj13': 'maj7 add 9 add 13',
     r'Maj13': 'maj7 add 9 add 13',
@@ -334,19 +343,31 @@ def finalize_notation(score: stream.Score) -> stream.Score:
     """
     Finaliza notación sin destruir barlines personalizados.
     Solo llama makeMeasures si no hay compases ya definidos.
+    IMPORTANTE: Maneja BeamException y otros errores de notación.
     """
     # Solo hacer makeMeasures si no existen Measure
     has_measures = any(isinstance(el, stream.Measure) for part in score.parts for el in part)
     if not has_measures:
         try:
             score.makeMeasures(inPlace=True)
-        except Exception:
-            pass
+        except Exception as e:
+            app.logger.warning(f"[Finalize] Error en makeMeasures: {e}")
     
+    # makeNotation puede fallar con BeamException - manejar gracefully
     try:
         score.makeNotation(inPlace=True)
-    except Exception:
-        pass
+    except Exception as e:
+        app.logger.warning(f"[Finalize] Error en makeNotation (ignorado): {e}")
+        # Intentar makeBeams individual para cada parte
+        for part in score.parts:
+            try:
+                for measure in part.getElementsByClass(stream.Measure):
+                    try:
+                        measure.makeBeams(inPlace=True)
+                    except Exception:
+                        pass  # Ignorar errores de beams individuales
+            except Exception:
+                pass
     return score
 
 def separate_fused_texts(xml_text: str) -> str:

@@ -1879,6 +1879,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   resetBtn?.addEventListener('click', () => {
     if (confirm('¿Estás seguro de que quieres limpiar el editor? Se perderán todos los cambios.')) {
+      // ✅ CORREGIDO: Detener reproductor ANTES de limpiar
+      if (isPlaying) {
+        stopPlayback();
+      }
+      
+      // ✅ CORREGIDO: Limpiar lastLoadedXML para forzar regeneración
+      lastLoadedXML = '';
+      
+      // ✅ CORREGIDO: Limpiar memoria de textos convertidos
+      if (typeof window.convertedTexts !== 'undefined') {
+        window.convertedTexts.clear();
+      }
+      
       // Limpiar editor (CodeMirror)
       if (window.codeMirrorEditor) {
         window.codeMirrorEditor.setValue('');
@@ -1890,14 +1903,37 @@ document.addEventListener('DOMContentLoaded', () => {
       container.innerHTML = '';
       errorOutput.textContent = '';
       
+      // Limpiar OSMD instance
+      if (hasRenderedOnce && typeof osmd.clear === 'function') {
+        try { 
+          osmd.clear(); 
+          hasRenderedOnce = false; // ✅ Resetear flag
+        } catch (_) {}
+      }
+      
       // Limpiar ediciones guardadas
       window.edits = {};
+      if (typeof window.clearDeletions === 'function') {
+        window.clearDeletions();
+      }
       if (typeof window.saveToLocalStorage === 'function') {
         localStorage.removeItem('scoreEdits');
       }
       
-      console.log('[Reset] Editor y partitura limpiados');
-      alert('Editor limpiado correctamente');
+      // ✅ CORREGIDO: Resetear estado del reproductor
+      scheduledNotes = [];
+      if (audioContext) {
+        audioContext.close().then(() => {
+          audioContext = null;
+          currentInstrument = null;
+        }).catch(() => {
+          audioContext = null;
+          currentInstrument = null;
+        });
+      }
+      
+      console.log('[Reset] Editor, partitura y reproductor completamente limpiados');
+      alert('Editor limpiado correctamente. Puedes introducir nuevo código.');
     }
   });
 
