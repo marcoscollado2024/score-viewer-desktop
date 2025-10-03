@@ -46,8 +46,35 @@ document.addEventListener('DOMContentLoaded', () => {
     // NOTA: save-visual-btn fue reemplazado por export-image-select
     document.getElementById('undo-btn').addEventListener('click', undo);
     document.getElementById('redo-btn').addEventListener('click', redo);
-    document.getElementById('font-select').addEventListener('change', (e) => applyFont(e.target.value));
-    document.getElementById('symbol-select').addEventListener('change', (e) => addNewSymbol(e.target.value));
+    
+    // ✅ CORREGIDO: Auto-cerrar selectores tras selección
+    const fontSelect = document.getElementById('font-select');
+    fontSelect.addEventListener('change', (e) => {
+        applyFont(e.target.value);
+        e.target.blur(); // Cerrar desplegable
+    });
+    
+    const symbolSelect = document.getElementById('symbol-select');
+    symbolSelect.addEventListener('change', (e) => {
+        addNewSymbol(e.target.value);
+        e.target.blur(); // Cerrar desplegable
+    });
+    
+    const colorSelect = document.getElementById('color-select');
+    if (colorSelect) {
+        colorSelect.addEventListener('change', (e) => {
+            // La lógica de color se maneja en su propio listener más abajo
+            e.target.blur(); // Cerrar desplegable
+        });
+    }
+    
+    const exportSelect = document.getElementById('export-image-select');
+    if (exportSelect) {
+        exportSelect.addEventListener('change', (e) => {
+            // La lógica de exportación se maneja en su propio listener más abajo
+            e.target.blur(); // Cerrar desplegable
+        });
+    }
 
     // Listeners de la Paleta de Edición Individual
     document.getElementById('zoom-in-btn').addEventListener('click', () => updateScale(1.1));
@@ -1729,11 +1756,19 @@ function hideContextMenu() {
 
 // Listener para menú contextual
 document.addEventListener('contextmenu', (e) => {
-    // ✅ CORREGIDO: Ocultar menú existente SIEMPRE al hacer click derecho
-    hideContextMenu();
-    
     // Solo mostrar en elementos seleccionables o si hay selección activa
     const clickedElement = e.target.closest('#osmd-container text, #annotation-svg text');
+    const isOnSelectDropdown = e.target.closest('select');
+    
+    // ✅ NO mostrar menú si se hace click derecho sobre un dropdown
+    if (isOnSelectDropdown) {
+        console.log('[Context Menu] Click derecho en dropdown, ignorado');
+        return;
+    }
+    
+    // ✅ Ocultar menú existente SIEMPRE
+    hideContextMenu();
+    
     if (!clickedElement && selectedElements.size === 0 && !selectedElement) {
         console.log('[Context Menu] Click derecho ignorado: sin elemento seleccionado');
         return;
@@ -1742,11 +1777,27 @@ document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     
-    // ✅ CORREGIDO: Mostrar menú con timeout para evitar conflictos
-    setTimeout(() => {
-        showContextMenu(e.pageX, e.pageY);
-        console.log('[Context Menu] Menú activado con click derecho');
-    }, 10);
+    showContextMenu(e.pageX, e.pageY);
+    console.log('[Context Menu] Menú activado');
+});
+
+// ✅ NUEVO: Cerrar menú contextual con cualquier click izquierdo en cualquier parte
+document.addEventListener('click', (e) => {
+    // Si el menú está visible y NO se clickó dentro del menú
+    if (contextMenu && contextMenu.style.display === 'block') {
+        if (!contextMenu.contains(e.target)) {
+            hideContextMenu();
+            console.log('[Context Menu] Cerrado por click fuera');
+        }
+    }
+});
+
+// ✅ NUEVO: Cerrar menú contextual al presionar Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && contextMenu && contextMenu.style.display === 'block') {
+        hideContextMenu();
+        console.log('[Context Menu] Cerrado con Escape');
+    }
 });
 
 // Exponer funciones globalmente
