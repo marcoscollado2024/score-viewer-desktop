@@ -25,6 +25,19 @@
     }
   },
   
+  "id_system": {
+    "assignment_timing": "MUST be assigned BEFORE insert() call",
+    "purpose": "Maps element ID to source code line number",
+    "enables": "Bidirectional navigation: code ↔ visualizer",
+    "workflow": [
+      "1. Create element: cs1 = harmony.ChordSymbol('Cmaj7')",
+      "2. Assign ID: cs1.id = 'cifrado-m1-0' (this line gets mapped)",
+      "3. Insert: m1.insert(0, cs1)"
+    ],
+    "backend_behavior": "Creates map {'cifrado-m1-0': line_number} where line_number is the line with .id assignment",
+    "user_interaction": "Click element in visualizer → editor highlights corresponding code line"
+  },
+  
   "canonical_imports": [
     "stream",
     "note",
@@ -62,9 +75,10 @@
   "validation_checklist": [
     "Título presente",
     "Sin bucles",
-    "IDs únicos para todos los textos",
+    "IDs únicos ANTES de insert() para mapeo código-visualizador",
     "Textos en offset 0",
     "TimeSignature solo en primer compás",
+    "Sin punto y coma (;) para concatenar líneas",
     "Línea final 'score = s'"
   ]
 }
