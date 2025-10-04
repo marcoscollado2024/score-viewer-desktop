@@ -1311,6 +1311,12 @@ document.addEventListener('DOMContentLoaded', () => {
               if (match) varName = match[1];
               targetLineIndex = j;
               break;
+            } else if (line.includes('tempo.MetronomeMark')) {
+              elementType = 'MetronomeMark';
+              const match = line.match(/(\w+)\s*=\s*tempo\.MetronomeMark/);
+              if (match) varName = match[1];
+              targetLineIndex = j;
+              break;
             } else if (line.includes('.lyric')) {
               elementType = 'Lyric';
               targetLineIndex = j;
