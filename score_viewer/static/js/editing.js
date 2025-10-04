@@ -1554,16 +1554,32 @@ function makeNotesClickable() {
   console.log(`[Color] ${noteHeads.length} nota(s) ahora clicables (click = color, doble click = editar)`);
 }
 
-// ✅ MEJORADO: Buscar la línea de note.Note asociada al lyric
+// ✅ PRIORIDAD: Buscar línea directamente desde dataset.codeLine de la nota
 function inferNotePitchFromPosition(noteHead) {
   try {
-    // Buscar el lyric más cercano
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
+    
+    // ✅ NUEVO: Usar dataset.codeLine directamente si existe
+    if (noteHead.dataset && noteHead.dataset.codeLine !== undefined) {
+      const lineNumber = parseInt(noteHead.dataset.codeLine);
+      const line = lines[lineNumber];
+      
+      // Extraer pitch: note.Note("D4", ...)
+      const match = line.match(/note\.Note\s*\(\s*["']([A-G][#b]?-?\d+)["']/);
+      if (match) {
+        const pitch = match[1];
+        console.log(`[Note Inference] ✅ Pitch desde dataset.codeLine=${lineNumber}: ${pitch}`);
+        noteHead.dataset.noteCodeLine = lineNumber;
+        return pitch;
+      }
+    }
+    
+    // FALLBACK: Buscar el lyric más cercano (solo si no tiene dataset.codeLine)
     const closestLyric = findClosestLyricToNote(noteHead);
     
     if (closestLyric && closestLyric.dataset && closestLyric.dataset.codeLine !== undefined) {
       const lyricLine = parseInt(closestLyric.dataset.codeLine);
-      const code = window.getCodeEditorValue();
-      const lines = code.split('\n');
       
       // Buscar hacia ARRIBA desde el lyric la línea note.Note
       for (let i = lyricLine; i >= Math.max(0, lyricLine - 5); i--) {
@@ -1573,11 +1589,8 @@ function inferNotePitchFromPosition(noteHead) {
         const match = line.match(/note\.Note\s*\(\s*["']([A-G][#b]?-?\d+)["']/);
         if (match) {
           const pitch = match[1];
-          console.log(`[Note Inference] ✅ Pitch encontrado en línea ${i}: ${pitch}`);
-          
-          // ✅ GUARDAR línea para actualización posterior
+          console.log(`[Note Inference] ✅ Pitch desde lyric (línea ${i}): ${pitch}`);
           noteHead.dataset.noteCodeLine = i;
-          
           return pitch;
         }
       }
