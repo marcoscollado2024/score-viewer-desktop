@@ -734,6 +734,21 @@ def run_music21_snippet_any(code: str):
         
         exec(code, ns, ns)
         
+        # ✅ NUEVO: Añadir lyrics invisibles a TODAS las notas sin lyric
+        # Esto permite mapear notas sin lyrics (casos verticales, chord.Chord, etc.)
+        for var_name, obj in ns.items():
+            # Buscar cualquier objeto Score, Part o Stream
+            if isinstance(obj, (stream.Score, stream.Part, stream.Stream)):
+                note_count = 0
+                for element in obj.recurse().notes:
+                    if not element.lyric:
+                        element.lyric = ' '  # Espacio simple → invisible en OSMD
+                        note_count += 1
+                
+                if note_count > 0:
+                    app.logger.info(f"[Lyrics Invisibles] ✅ Añadidos {note_count} lyrics invisibles a notas sin lyric")
+                    warnings_list.append(f"{note_count} nota(s) sin lyric recibieron un lyric invisible para mapeo")
+        
         # ✅ CREAR MAPEO: ID del elemento → número de línea
         element_line_map = {}
         lines = code.split('\n')
