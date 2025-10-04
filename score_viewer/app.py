@@ -694,7 +694,6 @@ def run_music21_snippet_any(code: str):
         for line in lines:
             # 1. Si importa harmony, NO agregarlo (usaremos SafeHarmony del namespace)
             if 'from music21 import' in line and 'harmony' in line:
-                import re
                 # Enfoque robusto: split por import, parsear lista, filtrar harmony, reconstruir
                 match = re.match(r'^(\s*from\s+music21\s+import\s+)(.+)$', line)
                 if match:

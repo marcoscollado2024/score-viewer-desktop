@@ -21,11 +21,11 @@ find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" -exec codesign 
 
 # 3. Firmar el ejecutable principal
 echo "⚙️  Firmando ejecutable principal..."
-codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$APP_PATH/Contents/MacOS/ScoreViewer"
+codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$APP_PATH/Contents/MacOS/Score Viewer"
 
 # 4. Finalmente, firmar el bundle completo
 echo "📦 Firmando aplicación completa..."
-codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp --entitlements /dev/null "$APP_PATH"
+codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$APP_PATH"
 
 # 5. Verificar
 echo "✅ Verificando firma..."

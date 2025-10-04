@@ -22,14 +22,23 @@ if [ ! -d "dist/Score Viewer.app" ]; then
     exit 1
 fi
 
-if [ ! -f "ScoreViewer-1.0.0.dmg" ]; then
-    echo -e "${RED}❌ Error: No se encontró 'ScoreViewer-1.0.0.dmg'${NC}"
+# Buscar DMG: usar parámetro si se proporciona, si no buscar el más reciente
+if [ -n "$1" ]; then
+    DMG_PATH="$1"
+else
+    DMG_PATH=$(ls -t ScoreViewer-macOS-*.dmg 2>/dev/null | head -1)
+fi
+
+if [ ! -f "$DMG_PATH" ]; then
+    echo -e "${RED}❌ Error: No se encontró DMG${NC}"
     echo "   Ejecuta primero: ./build_macos_complete.sh"
+    echo "   O especifica el DMG: ./sign_and_notarize.sh nombre-del-dmg.dmg"
     exit 1
 fi
 
+echo -e "${BLUE}📦 DMG a notarizar: ${DMG_PATH}${NC}"
+
 APP_PATH="dist/Score Viewer.app"
-DMG_PATH="ScoreViewer-1.0.0.dmg"
 
 # ============================================================
 # PASO 1: BUSCAR CERTIFICADO DE FIRMA
