@@ -3,6 +3,8 @@ name: Build Score Viewer
 on:
   push:
     branches: [ main, master ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -33,11 +35,15 @@ jobs:
       run: |
         pyinstaller --name "Score Viewer" --windowed --onefile --icon=app_icon.ico --add-data "score_viewer/templates;templates" --add-data "score_viewer/static;static" score_viewer/launcher.py
     
+    - name: Rename executable
+      run: |
+        mv "dist/Score Viewer.exe" "dist/ScoreViewer-Windows.exe"
+    
     - name: Upload Windows executable
       uses: actions/upload-artifact@v4
       with:
         name: ScoreViewer-Windows
-        path: dist/Score Viewer.exe
+        path: dist/ScoreViewer-Windows.exe
 
   build-macos:
     runs-on: macos-latest
@@ -92,8 +98,61 @@ jobs:
       run: |
         pyinstaller --name "Score Viewer" --windowed --onefile --add-data "score_viewer/templates:templates" --add-data "score_viewer/static:static" score_viewer/launcher.py
     
+    - name: Rename executable
+      run: |
+        mv "dist/Score Viewer" "dist/ScoreViewer-Linux"
+        chmod +x "dist/ScoreViewer-Linux"
+    
     - name: Upload Linux executable
       uses: actions/upload-artifact@v4
       with:
         name: ScoreViewer-Linux
-        path: dist/Score Viewer
+        path: dist/ScoreViewer-Linux
+
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+    
+    - name: Get current date
+      id: date
+      run: echo "date=$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: build-${{ steps.date.outputs.date }}
+        name: Score Viewer Build ${{ steps.date.outputs.date }}
+        body: |
+          🎵 **Score Viewer - Compilación Automática**
+          
+          Descarga la versión para tu sistema operativo:
+          
+          ### 💻 Windows
+          - Descarga: `ScoreViewer-Windows.exe`
+          - Ejecuta el archivo descargado
+          
+          ### 🍎 macOS
+          - Descarga: `ScoreViewer-macOS.dmg`
+          - Abre el DMG y arrastra Score Viewer a Aplicaciones
+          
+          ### 🐧 Linux
+          - Descarga: `ScoreViewer-Linux`
+          - Dale permisos de ejecución: `chmod +x ScoreViewer-Linux`
+          - Ejecuta: `./ScoreViewer-Linux`
+          
+          ---
+          
+          **Commit:** ${{ github.sha }}
+          **Fecha:** ${{ steps.date.outputs.date }}
+        files: |
+          ScoreViewer-Windows/ScoreViewer-Windows.exe
+          ScoreViewer-macOS/ScoreViewer-macOS.dmg
+          ScoreViewer-Linux/ScoreViewer-Linux
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
