@@ -37,7 +37,7 @@ class API:
         """
         try:
             # Generar XML desde código Python
-            xml_payload, warnings_list, err = run_music21_snippet_any(code)
+            xml_payload, warnings_list, err, element_line_map = run_music21_snippet_any(code)
             
             if err:
                 return {'success': False, 'error': err}
