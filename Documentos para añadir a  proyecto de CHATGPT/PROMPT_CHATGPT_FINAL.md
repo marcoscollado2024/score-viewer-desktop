@@ -47,6 +47,97 @@ from music21 import stream, note, chord, expressions, harmony, tempo, clef, key,
 
 ---
 
+## 🔍 SISTEMA DE IDENTIFICACIÓN DE OBJETOS
+
+### ¿Cómo Funciona el Sistema?
+
+Cada objeto musical en el código tiene un **ID único** que permite al sistema:
+
+1. **Mapear elemento → línea de código** donde se creó
+2. **Editar desde el visualizador** y actualizar el código Python
+3. **Navegar** desde UI al código fuente (y viceversa)
+
+### Flujo Completo
+
+```python
+# PASO 1: Crear objeto
+cs1 = harmony.ChordSymbol("Cmaj7")  # ← Línea 5 del código
+
+# PASO 2: Asignar ID ÚNICO (CRÍTICO)
+cs1.id = "cifrado-m1-0"             # ← Línea 6 del código
+
+# PASO 3: Insertar en medida
+m1.insert(0, cs1)                   # ← Línea 7 del código
+```
+
+**Resultado interno:**
+```python
+element_line_map = {
+    "cifrado-m1-0": 6  # ID mapeado a línea 6
+}
+```
+
+**Comunicación con Frontend:**
+- Backend → Frontend: HTTP header `X-Element-Line-Map: {"cifrado-m1-0": 6}`
+- Usuario hace clic en cifrado → UI resalta línea 6 del código
+- Usuario edita "Cmaj7" → "C7" → Código se actualiza automáticamente
+
+### Tipos de Objetos que Necesitan ID
+
+**OBLIGATORIO para:**
+- `harmony.ChordSymbol` → Cifrados armónicos
+- `expressions.TextExpression` → Análisis, indicaciones, textos
+- `tempo.MetronomeMark` → Tempo global
+
+**Ejemplo Completo con Mapeo:**
+```python
+# ===== Línea 1: Crear compás =====
+m1 = stream.Measure()
+
+# ===== Línea 3: ChordSymbol =====
+cs1 = harmony.ChordSymbol("Cmaj7")
+cs1.id = "cifrado-m1-0"  # ← ID único, se mapea a línea 4
+m1.insert(0, cs1)
+
+# ===== Línea 7: TextExpression (grado funcional) =====
+func1 = expressions.TextExpression("Imaj7")
+func1.id = "grado-m1-0"  # ← ID único, se mapea a línea 8
+func1.placement = 'above'
+m1.insert(0, func1)
+
+# ===== Línea 12: TextExpression (modo) =====
+modo1 = expressions.TextExpression("Jónico")
+modo1.id = "modo-m1-0"  # ← ID único, se mapea a línea 13
+modo1.placement = 'below'
+m1.insert(0, modo1)
+
+# MAPEO RESULTANTE:
+# {
+#   "cifrado-m1-0": 4,
+#   "grado-m1-0": 8,
+#   "modo-m1-0": 13
+# }
+```
+
+### Auto-asignación de IDs (Fallback)
+
+Si NO asignas un ID, el backend genera uno automáticamente:
+
+**Formato:** `{contenido-limpio}-m{compás}-p{parte}-{índice}`
+
+**Ejemplo:**
+```python
+cs1 = harmony.ChordSymbol("Cmaj7")
+# Usuario olvidó asignar .id
+m1.insert(0, cs1)
+
+# Backend auto-genera: "Cmaj7-m0-p0-0"
+```
+
+**⚠️ IMPORTANTE:** Siempre es mejor asignar IDs manualmente para control total.
+
+---
+
 ## REGLAS UNIVERSALES (APLICABLES A CUALQUIER EJERCICIO)
 
 ### 1️⃣ SIN Bucles ni Listas de Comprensión
@@ -66,6 +157,7 @@ m1.append(note.Note("E4", quarterLength=1, lyric="2"))
 ```
 
 ### 2️⃣ IDs ÚNICOS OBLIGATORIOS
+
 **Todos los elementos de texto DEBEN tener ID único:**
 
 **Formato estricto:** `{tipo}-m{compás}-{ordinal}`
@@ -82,6 +174,40 @@ m1.append(note.Note("E4", quarterLength=1, lyric="2"))
 - `expressions.TextExpression` (grados) → "grado-m1-0"
 - `expressions.TextExpression` (modos) → "modo-m1-0"
 - `tempo.MetronomeMark` → "tempo-global"
+
+**Mini-Ejemplo ChordSymbol:**
+```python
+cs1 = harmony.ChordSymbol("Dm7")
+cs1.id = "cifrado-m1-0"  # ← OBLIGATORIO, se mapea a esta línea
+m1.insert(0, cs1)
+# Mapeo: {"cifrado-m1-0": línea donde está cs1.id}
+```
+
+**Mini-Ejemplo TextExpression (grado funcional):**
+```python
+func1 = expressions.TextExpression("II-7")
+func1.id = "grado-m1-0"  # ← OBLIGATORIO, se mapea a esta línea
+func1.placement = 'above'
+m1.insert(0, func1)
+# Mapeo: {"grado-m1-0": línea donde está func1.id}
+```
+
+**Mini-Ejemplo TextExpression (modo):**
+```python
+modo1 = expressions.TextExpression("Dórico")
+modo1.id = "modo-m1-0"  # ← OBLIGATORIO, se mapea a esta línea
+modo1.placement = 'below'
+m1.insert(0, modo1)
+# Mapeo: {"modo-m1-0": línea donde está modo1.id}
+```
+
+**Mini-Ejemplo Tempo:**
+```python
+tm = tempo.MetronomeMark(number=90)
+tm.id = "tempo-global"  # ← OBLIGATORIO, ID descriptivo
+p.insert(0, tm)
+# Mapeo: {"tempo-global": línea donde está tm.id}
+```
 
 **Ejemplos válidos/inválidos:**
 ```python
@@ -272,7 +398,7 @@ m1.append(note.Note("D4", quarterLength=1))
 **⚠️ CRÍTICO - Nunca reasignes TimeSignature:**
 ```python
 m1 = stream.Measure()
-m1.timeSignature = meter.TimeSignature('4/4')  # ✅ Primer compás
+m1.timeSignature = meter.TimeSignature('4/4')  # ✅ Primer compás OK
 
 m2 = stream.Measure()
 # ❌ NO reasignar: m2.timeSignature = meter.TimeSignature('4/4')
@@ -355,6 +481,57 @@ m1.append(note.Note("F4", quarterLength=1, lyric="♭3"))  # ← Alteraciones co
 s.append(p)
 score = s  # ← OBLIGATORIO al final
 ```
+
+---
+
+## 🔧 DEBUGGING Y TRAZABILIDAD
+
+### Flujo de Edición Completo
+
+1. **Usuario escribe código Python** con IDs únicos
+2. **Backend ejecuta** y genera MusicXML
+3. **Backend crea mapeo** ID → línea de código
+4. **Frontend recibe** MusicXML + mapeo (HTTP header)
+5. **Usuario hace clic** en elemento visual
+6. **Frontend resalta** línea de código correspondiente
+7. **Usuario edita** en visualizador
+8. **Código Python se actualiza** automáticamente
+
+### Ejemplo de Trazabilidad
+
+**Código Python (con líneas numeradas):**
+```python
+1  m1 = stream.Measure()
+2  
+3  cs1 = harmony.ChordSymbol("Cmaj7")
+4  cs1.id = "cifrado-m1-0"  # ← Esta línea se mapea
+5  m1.insert(0, cs1)
+6  
+7  func1 = expressions.TextExpression("Imaj7")
+8  func1.id = "grado-m1-0"  # ← Esta línea se mapea
+9  func1.placement = 'above'
+10 m1.insert(0, func1)
+```
+
+**Mapeo generado:**
+```json
+{
+  "cifrado-m1-0": 4,
+  "grado-m1-0": 8
+}
+```
+
+**Resultado:**
+- Usuario hace clic en "Cmaj7" → Editor resalta línea 4
+- Usuario edita "Cmaj7" → "C7" → Línea 3 se actualiza automáticamente
+- Usuario hace clic en "Imaj7" → Editor resalta línea 8
+
+### Beneficios
+
+✅ **Edición bidireccional:** Código ↔ Visualizador
+✅ **Navegación instantánea:** Click elemento → ver código
+✅ **Debugging fácil:** Identificar origen de cada elemento
+✅ **Consistencia:** Código y visualización siempre sincronizados
 
 ---
 
@@ -548,19 +725,6 @@ s.append(lh)
 - **Notas comunes:** Mantenerlas en la misma voz cuando sea posible
 - **Saltos pequeños:** Mover cada voz lo mínimo necesario
 - Cifrado y análisis solo en RH (pentagrama superior)
-rh.append(m1_rh)
-lh.append(m1_lh)
-
-s.append(rh)
-s.append(lh)
-```
-
-**⚠️ IMPORTANTE:**
-- **Grand Staff (Piano):** 2 pentagramas, NO 4 partes separadas
-- Pentagrama superior (RH): voces agudas (Trompetas)
-- Pentagrama inferior (LH): voces graves (Trombón, Tuba)
-- Cifrado y análisis solo en RH (pentagrama superior)
-- Considerar rangos: RH (voces agudas), LH (voces graves)
 
 ---
 
@@ -742,6 +906,10 @@ El código generado permitirá al usuario:
 5. **Cambiar layout** (botones 1-4 compases):
    - Todas las ediciones persisten entre layouts
 
+6. **Navegación código ↔ visualizador:**
+   - Click en elemento → resalta línea de código donde se creó
+   - Edita en visualizador → código Python se actualiza automáticamente
+
 ---
 
 ## ERRORES COMUNES A EVITAR
@@ -790,7 +958,27 @@ m1.insert(0, func1)
 
 ---
 
-### 📌 Caso 3: TimeSignature Re-declarado
+### 📌 Caso 3: ID Asignado Demasiado Tarde
+
+❌ **MALO:**
+```python
+cs1 = harmony.ChordSymbol("Cmaj7")
+m1.insert(0, cs1)
+cs1.id = "cifrado-m1-0"  # ❌ Demasiado tarde - no se mapea
+```
+
+✅ **BUENO:**
+```python
+cs1 = harmony.ChordSymbol("Cmaj7")
+cs1.id = "cifrado-m1-0"  # ✅ ANTES de insert
+m1.insert(0, cs1)
+```
+
+**Razón:** El sistema mapea IDs en el momento de asignación (`.id =`). Si se asigna después de `insert`, no se registra en el mapeo.
+
+---
+
+### 📌 Caso 4: TimeSignature Re-declarado
 
 ❌ **MALO:**
 ```python
@@ -820,7 +1008,7 @@ m3 = stream.Measure()
 
 ---
 
-### 📌 Caso 4: Metadata Incorrecta
+### 📌 Caso 5: Metadata Incorrecta
 
 ❌ **MALO:**
 ```python
@@ -853,511 +1041,6 @@ s.metadata.title = "Mi Ejercicio"
 
 ---
 
-### ❌ ERROR 1: Bucles
-```python
-for i in range(8):
-    m1.append(...)  # ← PROHIBIDO
-```
-
-### ❌ ERROR 2: IDs faltantes
-```python
-cs1 = harmony.ChordSymbol("Dm7")
-m1.insert(0, cs1)  # ← FALTA cs1.id = "cifrado-m1-0"
-```
-
-### ❌ ERROR 3: Offsets manuales (textos)
-```python
-m1.insert(5, cs1)  # ← Textos SIEMPRE en offset 0
-```
-
-### ❌ ERROR 4: Falta título
-```python
-s = stream.Score()
-p = stream.Part()  # ← FALTA s.metadata.title = "..."
-```
-
-### ❌ ERROR 5: TimeSignature incorrecto
-```python
-m1 = stream.Measure()  # ← FALTA m1.timeSignature = ...
-```
-
----
-
-## NOTAS TÉCNICAS
-
-### Versión de music21
-**Target:** music21 **v7.0 o superior** (soporte completo UTF-8)
-
-- Los ejemplos y reglas están optimizados para music21 v7+
-- Si el entorno usa una versión anterior a v7, evitar caracteres Unicode en IDs (solo en contenido visible)
-- Para verificar la versión: `import music21; print(music21.VERSION)`
-
-### Alteraciones en Lyrics
-- Bemol: `♭` (U+266D)
-- Sostenido: `♯` (U+266F)
-- Becuadro: `♮` (U+266E)
-
-**Nota:** Estos símbolos solo deben usarse en contenido visible (lyrics, TextExpression), NUNCA en IDs.
-
-### Rangos de Octavas
-- Graves: C3, D3, E3...
-- Medios: C4, D4, E4... (más común)
-- Agudos: C5, D5, E5...
-
-### Placement
-- `'above'` → Encima del pentagrama (grados funcionales)
-- `'below'` → Debajo del pentagrama (modos)
-
-### Archivo de Validación
-El archivo `music21_rules.json` (raíz del proyecto) contiene las reglas en formato JSON para validación automática o referencia.
-
----
-
-## EJEMPLOS DE PROMPTS PARA DIFERENTES FORMATOS
-
-### EJEMPLO 1: Escalas Modales (Horizontal)
-```
-Genera código music21 para un ejercicio de escalas modales:
-
-- 3 compases: Dm7 (Dórico), G7 (Mixolidio), Cmaj7 (Jónico)
-- Cada compás con 8 notas ascendentes (grados 1-8)
-- Incluir: cifrado, grado funcional (arriba), modo (abajo)
-- Análisis funcional: II-7, V7, Imaj7 (notación Berklee/Jazz)
-- Lyrics con números de escala (1, 2, ♭3, etc.)
-- Tempo 90 BPM
-
-IMPORTANTE: Seguir TODAS las reglas (IDs únicos, sin bucles, offsets en 0)
-```
-
-### EJEMPLO 2: Acordes Verticales con Intervalos
-```
-Genera código music21 para análisis de acordes verticales:
-
-- 4 compases con acordes: Cmaj7, Dm7, Em7, Fmaj7
-- Cada compás: acorde vertical (chord.Chord)
-- TextExpression MULTILINEA con intervalos apilados:
-  "1\n3\n5\n7" (uno encima del otro)
-- ChordSymbol con el cifrado
-- Tempo 80 BPM
-
-IMPORTANTE: Usar "\n" para separar líneas en TextExpression.
-IDs únicos, sin bucles, offsets en 0.
-```
-
-### EJEMPLO 3: Lead Sheet (Melodía + Cifrado)
-```
-Genera código music21 para un lead sheet:
-
-- 4 compases de melodía libre en Do mayor
-- Solo ChordSymbol (sin análisis funcional)
-- Acordes: Cmaj7, Am7, Dm7, G7
-- Notas SIN lyrics (notación estándar)
-- Ritmo variado (negras, corcheas, blancas)
-- Tempo 120 BPM
-
-IMPORTANTE: IDs únicos para todos los ChordSymbol.
-Sin bucles, offsets en 0.
-```
-
-### EJEMPLO 4: Análisis Armónico Detallado
-```
-Genera código music21 con análisis armónico completo:
-
-- 2 compases: Cmaj7, G7
-- Para cada compás incluir TextExpression con análisis:
-  * Grado funcional (Imaj7, V7) - placement 'above' - Notación Berklee/Jazz
-  * Función (Tónica, Dominante) - placement 'below'
-- ChordSymbol con cifrado
-- Acordes verticales (4 notas cada uno)
-
-IMPORTANTE: 
-- Cada TextExpression con su propio ID único
-- Usar notación Berklee/Jazz (Imaj7, V7, NO I, V)
-- Sin bucles, offsets en 0
-```
-
-### EJEMPLO 5: Ejercicio de Ritmo
-```
-Genera código music21 para ejercicio rítmico:
-
-- 4 compases en 4/4
-- Solo nota C4 con diferentes duraciones
-- Incluir silencios
-- TextExpression indicando el patrón rítmico
-- NO usar ChordSymbol
-- NO usar lyrics
-
-IMPORTANTE: IDs únicos para TextExpression.
-Sin bucles, offsets en 0.
-```
-
-### EJEMPLO 6: Soli a Cuatro Voces (SATB en Grand Staff)
-```
-Genera código music21 para coral a cuatro voces:
-
-- FORMATO: Grand Staff (Piano) - 2 pentagramas
-- Pentagrama superior (clave de sol): Soprano + Alto
-- Pentagrama inferior (clave de fa): Tenor + Bajo
-- 2 compases: Cmaj7, Am7
-- Análisis funcional: Imaj7, VI-7 (notación Berklee/Jazz)
-- Movimiento homofónico (todas las voces mismo ritmo)
-- Redondas (quarterLength=4) en ambos compases
-- ChordSymbol y análisis SOLO en pentagrama superior (RH)
-- Tempo 72 BPM
-
-IMPORTANTE: 
-- 2 Part(): RH (clave sol) y LH (clave fa), NO 4 partes separadas
-- Usar chord.Chord para combinar voces en cada pentagrama
-- IDs únicos para cifrados y análisis
-- Sin bucles, offsets en 0
-- TimeSignature 4/4
-```
-
-### EJEMPLO 7: Sección de Metales (Grand Staff)
-```
-Genera código music21 para sección de metales:
-
-- FORMATO: Grand Staff (Piano) - 2 pentagramas
-- Pentagrama superior (clave de sol): Trumpet 1 + Trumpet 2
-- Pentagrama inferior (clave de fa): Trombone + Tuba
-- 2 compases: Dm7 (II-7), G7 (V7)
-- Movimiento en bloque, ritmo blanca-blanca
-- ChordSymbol y análisis funcional SOLO en pentagrama superior (RH)
-- Añadir TextExpression con articulación (marcato, staccato, etc)
-- Considerar rangos:
-  * RH (sol): voces agudas Bb4-C5
-  * LH (fa): voces graves D2-E4
-- Tempo 96 BPM
-
-IMPORTANTE:
-- 2 Part(): RH (clave sol) y LH (clave fa), NO 4 partes separadas
-- Usar chord.Chord para combinar voces en cada pentagrama
-- IDs únicos para todos los elementos de texto
-- Sin bucles, offsets en 0
-- TimeSignature 4/4
-```
-
-### EJEMPLO 8: Progresión Armónica con Movimientos (Grand Staff)
-```
-Genera código music21 para análisis de conducción de voces:
-
-- FORMATO: Grand Staff (Piano) - 2 pentagramas
-- Pentagrama superior: Soprano (melodía) + Alto (redondas)
-- Pentagrama inferior: Tenor + Bajo (redondas)
-- 4 compases: Cmaj7 → Dm7 → G7 → Cmaj7
-- Análisis funcional: Imaj7 → II-7 → V7 → Imaj7 (notación Berklee/Jazz)
-- Soprano: melodía con negras y blancas
-- Otras voces (Alto, Tenor, Bajo): redondas sostenidas
-- ChordSymbol en cada compás (solo en RH)
-- Indicaciones de movimientos cuando proceda:
-  * TextExpression "mov. contrario"
-  * TextExpression "mov. paralelo"
-- Tempo 80 BPM
-
-IMPORTANTE:
-- 2 Part(): RH y LH, NO 4 partes separadas
-- Soprano como melodía separada + Alto en chord
-- Tenor + Bajo en chord en LH
-- Todos los textos con IDs únicos
-- Notación Berklee/Jazz (II-7, NO ii-7)
-- Sin bucles, offsets en 0
-- TimeSignature 4/4
-```
-
----
-
-## ENCARGOS COMPOSITIVOS AVANZADOS
-
-Además de los ejercicios pedagógicos, el sistema puede generar composiciones musicales completas. Esta sección cubre tareas creativas y composicionales más sofisticadas.
-
-### CONTRAPUNTO Y CONDUCCIÓN DE VOCES
-
-Cuando se solicite contrapunto o conducción de voces independientes:
-
-**Principios Fundamentales:**
-
-1. **Movimiento por Grado Conjunto:**
-   - Priorizar intervalos de 2ª (mayor o menor)
-   - Evitar saltos innecesarios, especialmente mayores de 4ª
-   - Si hay salto, compensar con movimiento contrario
-
-2. **Tendencias Melódicas:**
-   - Cada voz debe tener coherencia melódica (cantábile)
-   - Evitar movimientos angulosos o antinaturales
-   - Respetar el ámbito natural de cada voz
-
-3. **Notas Comunes:**
-   - Mantenerlas en la misma voz cuando sea posible
-   - Minimizan el movimiento y aportan continuidad
-
-4. **Movimientos:**
-   - **Contrario:** Voces en dirección opuesta (ideal)
-   - **Oblicuo:** Una voz se mueve, otra queda fija
-   - **Directo:** Mismo sentido pero evitando quintas/octavas directas
-   - **Paralelo:** Usar solo 3as y 6as (nunca 5as/8vas consecutivas)
-
-**Ejemplo de Contrapunto Estilo Bach (Coral):**
-```python
-# ===== Compás 1: Cmaj7 → Compás 2: Dm7 =====
-# VOICE LEADING ESTRICTO
-
-# Compás 1: Cmaj7 (C-E-G-B)
-# Soprano: G4, Alto: E4, Tenor: C4, Bajo: C3
-
-# Compás 2: Dm7 (D-F-A-C)
-# Soprano: A4 (2ª mayor ascendente - grado conjunto)
-# Alto: F4 (2ª mayor ascendente - grado conjunto)
-# Tenor: C4 (nota común - se mantiene)
-# Bajo: D3 (2ª mayor ascendente - grado conjunto)
-
-# RESULTADO: 3 voces por grado conjunto, 1 nota común
-# Movimientos: Soprano/Tenor contrario, Bajo/Alto paralelas 3as
-```
-
-**Ejemplo Contrapunto Jazzístico (más libre):**
-```python
-# Voice Leading Jazz: más cromático, puede tener saltos expresivos
-# Pero siempre cantábile y con sentido melódico
-
-# Cmaj7 → C#dim7 → Dm7 (cromático)
-# Soprano: G4 → G4 (nota común)
-# Alto: E4 → E4 (nota común)
-# Tenor: C4 → C#4 (cromático ascendente)
-# Bajo: C3 → C#3 → D3 (línea cromática)
-```
-
-### FORMAS MUSICALES
-
-Cuando se solicite una forma específica, respetar su estructura:
-
-**1. CANON:**
-```python
-# Voz 1 empieza, Voz 2 entra X compases después imitando exactamente
-# Especificar intervalo de imitación (unísono, 5ª, octava)
-
-from music21 import stream, note
-
-# Tema original (Voz 1)
-theme = [
-    note.Note("C4", quarterLength=1),
-    note.Note("D4", quarterLength=1),
-    note.Note("E4", quarterLength=1),
-    note.Note("F4", quarterLength=1)
-]
-
-# Voz 1: comienza en compás 1
-# Voz 2: comienza en compás 3 (imitación exacta)
-# Ambas voces en Grand Staff
-```
-
-**2. FUGA (Estilo Bach):**
-- Exposición: Sujeto en Tónica → Respuesta en Dominante
-- Desarrollo: Episodios modulantes + Strettos
-- Conducción de voces independientes (4 voces)
-- Contrapunto estricto, movimiento cantábile
-
-**3. SONATA:**
-- Exposición: Tema A (tónica), puente, Tema B (dominante)
-- Desarrollo: Modulaciones, fragmentación temática
-- Recapitulación: Tema A y B en tónica
-
-**4. RONDÓ:**
-- Estructura: A-B-A-C-A (tema principal alternando con episodios)
-
-### ARREGLOS PARA METALES (JAZZ/BIG BAND)
-
-**Configuración Estándar:**
-- 4 voces: 2 Trompetas + Trombón + Tuba
-- 5 voces: 2 Trompetas + Saxo Alto + Trombón + Tuba
-
-**IMPORTANTE - Formato Visual:**
-- Grand Staff (2 pentagramas), NO 4-5 partes separadas
-- Pentagrama superior (clave de sol): voces agudas con **plicas divididas**
-- Pentagrama inferior (clave de fa): voces graves con **plicas divididas**
-
-**Ejemplo 4 Metales:**
-```python
-# FORMATO: Grand Staff con plicas divididas (cada voz independiente)
-# RH (clave sol): Trumpet 1 (soprano) + Trumpet 2 (alto)
-# LH (clave fa): Trombone (tenor) + Tuba (bajo)
-
-# Cada voz con su propia línea melódica
-# RH: Usar chord.Chord pero pensar en 2 líneas independientes
-# LH: Usar chord.Chord pero pensar en 2 líneas independientes
-
-# Consideraciones:
-# - Trumpet 1: rango Bb4-C6 (melódica, lead)
-# - Trumpet 2: rango G4-A5 (armonía, contramelodía)
-# - Trombone: rango E2-Bb4 (inner voice, armonía)
-# - Tuba: rango E1-F3 (bajo, fundación)
-```
-
-**VOICE LEADING JAZZ:**
-- Movimiento preferente por grado conjunto
-- Uso de cromatismo expresivo
-- Acordes de paso entre cambios armónicos
-- Backgrounds activos (respuestas, fills)
-- Tensiones armónicas (#9, #11, b13)
-- Drop 2, Drop 3 voicings (distribución de acordes)
-
-### ACOMPAÑAMIENTO ACTIVO Y BACKGROUNDS
-
-**Acompañamiento Activo (no solo block chords):**
-
-```python
-# En lugar de acordes estáticos:
-# ❌ Chord redonda quarterLength=4
-
-# Usar patrones rítmicos:
-# ✅ Chord con ritmo: blanca-negra-negra
-# ✅ Backgrounds: respuestas melódicas entre frases
-# ✅ Fills: rellenar espacios cuando la melodía descansa
-
-# Ejemplo Background de Metales:
-# Melodía (compás 1): negras C5-D5-E5-silencio
-# Background (compás 1): silencio-silencio-silencio-Chord[E4,G4,C5] (respuesta)
-```
-
-**Acordes de Paso:**
-```python
-# Entre Cmaj7 y Dm7, usar acordes cromáticos:
-# Cmaj7 (compás 1) → C#dim7 (beat 3) → Dm7 (compás 2)
-# El C#dim7 es acorde de paso que conecta cromáticamente
-```
-
-### ARMONÍAS SOFISTICADAS (JAZZ)
-
-**Tensiones y Alteraciones:**
-- Dominantes: 7(b9), 7(#9), 7(#11), 7(b13)
-- Mayores: maj7(#11), maj9, maj13
-- Menores: m9, m11, m13
-- Sustitutos: subV7, tritone substitution
-- Dominantes secundarios: V7/II, V7/V, etc.
-
-**Drop Voicings:**
-```python
-# Drop 2: bajar 2ª voz más aguda una octava
-# Cmaj7 cerrado: C4-E4-G4-B4
-# Cmaj7 Drop 2: C4-G3-B3-E4 (más abierto, mejor blend)
-
-# Para metales, usar Drop 2 o Drop 3 para evitar voicings muy cerrados
-```
-
-### RANGOS Y LÍMITES
-
-**LÍMITE DEL SISTEMA:**
-- Todo debe caber en **formato de piano** (2 pentagramas, Grand Staff)
-- NO orquestaciones completas
-- NO big bands completas (máximo 4-5 voces)
-- SÍ cualquier música que se plasme en Grand Staff
-
-**Rangos recomendados:**
-- **Soprano/Trumpet 1:** C5-C6
-- **Alto/Trumpet 2:** G4-A5
-- **Tenor/Trombone:** E3-Bb4
-- **Bajo/Tuba:** E2-F3
-
-### NOTACIÓN Y FORMATO
-
-**Todos los formatos composicionales DEBEN seguir las reglas universales:**
-- ✅ IDs únicos para todos los textos
-- ✅ Sin bucles
-- ✅ TimeSignature correcto
-- ✅ Título obligatorio
-- ✅ Terminar con `score = s`
-
-**Indicaciones de Interpretación (usar TextExpression):**
-```python
-# Articulaciones
-articulation = expressions.TextExpression("marcato")
-articulation.id = "articulation-m1-0"
-articulation.placement = 'above'
-
-# Dinámicas
-dynamics = expressions.TextExpression("mf cresc.")
-dynamics.id = "dynamics-m1-0"
-dynamics.placement = 'below'
-
-# Tempo/Estilo
-style = expressions.TextExpression("Swing")
-style.id = "style-m1-0"
-style.placement = 'above'
-```
-
-### CHECKLIST COMPOSITIVO
-
-Antes de generar código para composición:
-
-- [ ] ¿Respeta la forma musical solicitada?
-- [ ] ¿Voice leading suave? (grado conjunto preferente)
-- [ ] ¿Voces cantábiles e independientes?
-- [ ] ¿Rangos adecuados para cada instrumento?
-- [ ] ¿Armonía sofisticada cuando proceda? (jazz)
-- [ ] ¿Backgrounds/fills en espacios vacíos?
-- [ ] ¿Acordes de paso donde tenga sentido?
-- [ ] ¿Formato Grand Staff (máximo 2 pentagramas)?
-- [ ] ¿Todas las reglas universales cumplidas?
-
-### EJEMPLO COMPLETO: ARREGLO JAZZ PARA METALES
-
-```python
-from music21 import stream, note, chord, expressions, harmony, tempo, clef, meter
-
-s = stream.Score()
-s.metadata.title = "Autumn Leaves - Sección de Metales"
-
-# ===== Pentagrama Superior (Trumpets) =====
-rh = stream.Part()
-rh.insert(0, clef.TrebleClef())
-rh.partName = "Trumpets"
-
-# ===== Pentagrama Inferior (Trombone + Tuba) =====
-lh = stream.Part()
-lh.insert(0, clef.BassClef())
-lh.partName = "Low Brass"
-
-tm = tempo.MetronomeMark(number=140)
-tm.id = "tempo-global"
-rh.insert(0, tm)
-
-# ===== Compás 1: Cm7 (II-7) =====
-m1_rh = stream.Measure()
-m1_rh.timeSignature = meter.TimeSignature('4/4')
-
-cs1 = harmony.ChordSymbol("Cm7")
-cs1.id = "cifrado-m1-0"
-m1_rh.insert(0, cs1)
-
-grado1 = expressions.TextExpression("II-7")
-grado1.id = "grado-m1-0"
-grado1.placement = 'above'
-m1_rh.insert(0, grado1)
-
-# Trumpets: Drop 2 voicing, ritmo swing
-# Trumpet 1 (Eb5) + Trumpet 2 (C5)
-chord_rh = chord.Chord(["C5", "Eb5"], quarterLength=2)  # Blanca
-m1_rh.append(chord_rh)
-# Background: respuesta en beat 3-4
-chord_rh2 = chord.Chord(["Bb4", "D5"], quarterLength=2)
-m1_rh.append(chord_rh2)
-
-m1_lh = stream.Measure()
-# Trombone (G3) + Tuba (C3)
-chord_lh = chord.Chord(["C3", "G3"], quarterLength=4)  # Walking bass podría ser más activo
-m1_lh.append(chord_lh)
-
-rh.append(m1_rh)
-lh.append(m1_lh)
-
-# ... continuar con Compás 2: F7 (V7), etc.
-
-s.append(rh)
-s.append(lh)
-score = s
-```
-
----
-
 ## RESUMEN PARA CHATGPT
 
 **Cuando te pidan generar ejercicios musicales con music21:**
@@ -1378,5 +1061,11 @@ score = s
    - TextExpression multilinea para intervalos verticales
 
 4. **Verifica con el checklist** antes de entregar el código
+
+5. **Recuerda el sistema de IDs:**
+   - Asigna `.id` ANTES de hacer `insert()`
+   - Usa formato `{tipo}-m{N}-{ordinal}`
+   - El sistema mapeará automáticamente ID → línea de código
+   - Esto permite edición bidireccional código ↔ visualizador
 
 **ChatGPT generará código perfecto siguiendo estas reglas automáticamente.**
