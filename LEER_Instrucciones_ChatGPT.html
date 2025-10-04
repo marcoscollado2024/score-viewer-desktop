@@ -79,7 +79,11 @@ Después, genera un ejemplo mínimo con music21:
 - Un compás de Cmaj7 en 4/4
 - 4 negras (C4, D4, E4, F4)
 - Incluir título, clave, armadura, tempo con id, ChordSymbol con id, y terminar con `score = s`.
-Debe cumplir TODAS las reglas (sin bucles, IDs únicos, textos en offset 0, timeSignature solo en el primer compás, Unicode ♭♯♮ si procede).
+Debe cumplir TODAS las reglas:
+  • Sin bucles, IDs únicos ANTES de insert() (líneas separadas)
+  • IDs mapean a líneas de código para navegación bidireccional código↔visualizador
+  • Textos en offset 0, timeSignature solo en primer compás
+  • Unicode ♭♯♮ si procede, sin punto y coma (;) para concatenar
 Si incumples alguna regla, primero devuelve lista de errores y luego la versión corregida.
 Además de las reglas de notación, consulta las guías de composición clásica y moderna en Documentos para aplicar las reglas estilísticas.</pre>
       </div>
