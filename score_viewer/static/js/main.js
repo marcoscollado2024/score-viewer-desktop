@@ -110,6 +110,11 @@ document.addEventListener('DOMContentLoaded', () => {
       await osmd.render();
       hasRenderedOnce = true;
 
+      // ✅ FIX: Esperar a que DOM se estabilice completamente (2 frames)
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      console.log('[score-viewer] DOM estabilizado tras render');
+
       // Crear grupo separado para pentagrama (sin textos)
       wrapStaffElements();
 
@@ -1990,6 +1995,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const newXML = await resp.text();
         lastLoadedXML = newXML; // Actualizar XML global
         
+        // ✅ FIX: Leer mapeo del backend (igual que en carga inicial)
+        const mapeoHeader = resp.headers.get('X-Element-Line-Map');
+        let elementLineMap = {};
+        
+        if (mapeoHeader) {
+          try {
+            elementLineMap = JSON.parse(mapeoHeader);
+            window.elementLineMap = elementLineMap;
+            console.log(`[Cambio Vista] ✅ Mapeo recibido: ${Object.keys(elementLineMap).length} elemento(s)`);
+          } catch (e) {
+            console.error('[Cambio Vista] Error parseando mapeo:', e);
+          }
+        } else {
+          console.warn('[Cambio Vista] ⚠️ No se recibió mapeo del backend');
+        }
+        
         // 2. Limpiar y recargar OSMD
         container.innerHTML = '';
         if (hasRenderedOnce && typeof osmd.clear === 'function') {
@@ -1999,11 +2020,19 @@ document.addEventListener('DOMContentLoaded', () => {
         await osmd.load(newXML);
         await osmd.render();
         
+        // ✅ FIX: Esperar a que DOM se estabilice (igual que en carga inicial)
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        console.log('[Cambio Vista] DOM estabilizado tras render');
+        
         // 3. Limpiar duplicados
         removeDuplicateTexts();
         
         // ✅ CRÍTICO: Asignar IDs ANTES de aplicar textContent
         assignCorrectIDsFromCode(updatedCode);
+        
+        // ✅ FIX: Vincular con mapeo del backend (igual que en carga inicial)
+        linkElementsFromBackend(elementLineMap);
         
         // 4. Re-inicializar edición
         if (typeof initEditing === 'function') {
