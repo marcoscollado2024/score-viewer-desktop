@@ -110,10 +110,11 @@ document.addEventListener('DOMContentLoaded', () => {
       await osmd.render();
       hasRenderedOnce = true;
 
-      // ✅ FIX: Esperar a que DOM se estabilice completamente (2 frames)
+      // ✅ FIX: Esperar a que DOM se estabilice completamente (más tiempo)
       await new Promise(resolve => requestAnimationFrame(resolve));
       await new Promise(resolve => requestAnimationFrame(resolve));
-      console.log('[score-viewer] DOM estabilizado tras render');
+      await new Promise(resolve => setTimeout(resolve, 100)); // ✅ NUEVO: Espera adicional
+      console.log('[score-viewer] DOM estabilizado tras render (con espera adicional)');
 
       // Crear grupo separado para pentagrama (sin textos)
       wrapStaffElements();
@@ -121,7 +122,10 @@ document.addEventListener('DOMContentLoaded', () => {
       // Eliminar duplicados (textos con style="" vacío o sin transform)
       removeDuplicateTexts();
 
-      // ✅ CRÍTICO: Asignar IDs estables ANTES de initEditing
+      // ✅ CRÍTICO: Esperar un frame más antes de asignar IDs
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      
+      // Asignar IDs estables ANTES de initEditing
       const stableMapping = assignCorrectIDsFromCode(code);
       console.log(`[score-viewer] IDs estables asignados: ${Object.keys(stableMapping).length}`);
 
