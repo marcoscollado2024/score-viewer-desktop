@@ -112,20 +112,20 @@ jobs:
   create-release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
     
-    - name: Get current date
-      id: date
-      run: echo "date=$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+    - name: Get tag name
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
     
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: build-${{ steps.date.outputs.date }}
-        name: Score Viewer Build ${{ steps.date.outputs.date }}
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: Score Viewer ${{ steps.tag.outputs.tag }}
         body: |
           🎵 **Score Viewer - Compilación Automática**
           
