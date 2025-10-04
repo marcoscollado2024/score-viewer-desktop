@@ -394,24 +394,43 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
       
-      // ✅ NUEVO: Notas - Extraer ID del código Python
-      if (line.includes('note.Note(') && line.includes('.id =')) {
-        // Formato: n10 = note.Note("D4", quarterLength=0.5); n10.lyric = "1";  n10.id = "n-m1-0";
-        const idMatch = line.match(/\.id\s*=\s*["'](.+?)["']/);
-        if (idMatch) {
-          const noteId = idMatch[1]; // ej: "n-m1-0"
+      // ✅ NUEVO: Notas - Extraer ID del código Python (buscar .id en siguiente línea)
+      if (line.includes('note.Note(')) {
+        const varMatch = line.match(/(\w+)\s*=\s*note\.Note\(/);
+        if (varMatch) {
+          const varName = varMatch[1];
+          // Buscar .id en las próximas líneas
+          for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+            if (lines[j].includes(`${varName}.id`)) {
+              const idMatch = lines[j].match(/\.id\s*=\s*["'](.+?)["']/);
+              if (idMatch) {
+                const noteId = idMatch[1];
+                const compas = detectarCompasPorLinea(lines, i);
+                
+                codeElements.push({
+                  tipo: 'Note',
+                  noteId: noteId,
+                  compas: compas,
+                  linea: i // Línea de la declaración note.Note()
+                });
+                
+                console.log(`[ID Mapping] Note "${noteId}" → elemento (línea ${i})`);
+                break;
+              }
+            }
+          }
+        }
+      }
+      
+      // ✅ NUEVO: MetronomeMark - Extraer texto e ID
+      if (line.includes('tempo.MetronomeMark(')) {
+        const textMatch = line.match(/text\s*=\s*["'](.+?)["']/);
+        if (textMatch) {
+          const texto = textMatch[1];
           const compas = detectarCompasPorLinea(lines, i);
-          
-          // Para notas, necesitamos buscar el lyric más cercano en el SVG
-          // Así que guardamos el ID del código Python para vinculación directa
-          codeElements.push({
-            tipo: 'Note',
-            noteId: noteId, // ID explícito del código
-            compas: compas,
-            linea: i
-          });
-          
-          console.log(`[ID Mapping] Note ID "${noteId}" (compás ${compas}) → línea ${i}`);
+          const idEstable = `element_${elementCounter++}`;
+          codeElements.push({tipo: 'MetronomeMark', texto, compas, idEstable, linea: i});
+          console.log(`[ID Mapping] MetronomeMark "${texto}" → ${idEstable} (línea ${i})`);
         }
       }
       
