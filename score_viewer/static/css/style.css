@@ -344,12 +344,14 @@ h1::before {
   background: rgba(255, 255, 255, 0.25);
 }
 
-/* Selector de instrumentos - más ancho */
+/* Selector de instrumentos - igual tamaño que los demás */
 #instrument-select {
-  width: 32px !important;
-  font-size: 14px !important;
-  text-align: left !important;
-  padding-left: 4px !important;
+  width: 28px !important;
+  height: 28px !important;
+  font-size: 18px !important;
+  text-align: center !important;
+  text-align-last: center !important;
+  padding: 0 !important;
 }
 
 .toolbar-divider {
@@ -715,4 +717,26 @@ small, .hint{
 
 .cm-s-material-darker .cm-property {
   color: #a0c8f0 !important; /* Azul cielo pastel */
+}
+
+/* ====== Resaltado de código para edición visual ====== */
+.highlighted-line {
+  background: rgba(102, 126, 234, 0.2) !important;
+  border-left: 3px solid var(--primary) !important;
+}
+
+/* ✅ NUEVO: Resaltado más oscuro mientras se edita */
+.highlighted-line.editing {
+  background: rgba(102, 126, 234, 0.5) !important;
+  border-left: 5px solid var(--primary) !important;
+  box-shadow: 0 0 10px rgba(102, 126, 234, 0.3) !important;
+}
+
+.CodeMirror-line.highlighted-line {
+  background: rgba(102, 126, 234, 0.2) !important;
+}
+
+.CodeMirror-line.highlighted-line.editing {
+  background: rgba(102, 126, 234, 0.5) !important;
+  border-left: 5px solid var(--primary) !important;
 }

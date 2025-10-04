@@ -731,34 +731,60 @@ def run_music21_snippet_any(code: str):
                     app.logger.info(f"[Auto-init] Metadata agregada para '{var_name}'")
         
         code = '\n'.join(modified_lines)
+        
         exec(code, ns, ns)
+        
+        # ✅ CREAR MAPEO: ID del elemento → número de línea
+        element_line_map = {}
+        lines = code.split('\n')
+        
+        for line_num, line in enumerate(lines):
+            line_stripped = line.strip()
+            
+            # Detectar asignaciones (c1 =, tx1 =, n =, etc.)
+            if '=' in line and not line_stripped.startswith('#'):
+                match = re.match(r'^(\s*)(\w+)\s*=\s*', line)
+                if match:
+                    var_name = match.group(2)
+                    
+                    if var_name in ns:
+                        obj = ns[var_name]
+                        
+                        # Si tiene ID (.id property)
+                        if isinstance(obj, M21_TYPES) and hasattr(obj, 'id') and obj.id:
+                            element_line_map[obj.id] = line_num
+                            app.logger.info(f"[Line Map] {obj.id} → línea {line_num}")
+        
+        # Guardar mapeo en namespace global (para devolver luego)
+        ns['__element_line_map__'] = element_line_map
+        
         kind, value = find_first_music21_object(ns)
 
         if kind == "score":
             xml_text = to_musicxml_string(value, warnings_list)
-            return xml_text, warnings_list, None
+            return xml_text, warnings_list, None, element_line_map
 
         if kind == "obj":
             xml_text = to_musicxml_string(value, warnings_list)
-            return xml_text, warnings_list, None
+            return xml_text, warnings_list, None, element_line_map
 
         if kind == "xml":
             # XML directo, sin warnings
-            return value, [], None
+            return value, [], None, element_line_map
 
         if kind == "path":
             xml_text = to_musicxml_string(value, warnings_list)
-            return xml_text, warnings_list, None
+            return xml_text, warnings_list, None, element_line_map
 
         if kind == "mxl":
             from io import BytesIO
             sc = converter.parse(BytesIO(value))
             xml_text = to_musicxml_string(sc, warnings_list)
-            return xml_text, warnings_list, None
+            return xml_text, warnings_list, None, element_line_map
 
-        return None, warnings_list, "No se encontró ningún objeto de music21, 'xml' o 'path' en el código."
+        return None, warnings_list, "No se encontró ningún objeto de music21, 'xml' o 'path' en el código.", {}
     except Exception:
-        return None, warnings_list, traceback.format_exc()
+        return None, warnings_list, traceback.format_exc(), {}
 
 # ============================================================
 # ======================= RUTAS FLASK ========================
@@ -798,7 +824,7 @@ def render_xml():
     if not code:
         return jsonify({"error": "No se proporcionó 'code', 'xml' ni 'path'."}), 400
 
-    xml_payload, warnings_list, err = run_music21_snippet_any(code)
+    xml_payload, warnings_list, err, element_line_map = run_music21_snippet_any(code)
     if err:
         return jsonify({"error": err}), 400
 
@@ -854,6 +880,13 @@ def render_xml():
         
         response.headers['X-Warnings'] = warnings_summary_safe
         response.headers['X-Warnings-Count'] = str(len(warnings_list))
+    
+    # ✅ NUEVO: Devolver mapeo ID→línea como header JSON
+    if element_line_map:
+        import json
+        element_line_map_json = json.dumps(element_line_map)
+        response.headers['X-Element-Line-Map'] = element_line_map_json
+        app.logger.info(f"[Line Map] Devolviendo mapeo de {len(element_line_map)} elemento(s)")
     
     return response
 
@@ -1151,8 +1184,8 @@ def export_midi():
         if not code_str.strip():
             return "Error: código vacío", 400
 
-        # Ejecutar código igual que en render-xml
-        xml_payload, warnings_list, err = run_music21_snippet_any(code_str)
+        # ✅ FIX: Ejecutar código con 4 valores de retorno
+        xml_payload, warnings_list, err, element_line_map = run_music21_snippet_any(code_str)
         if err:
             return jsonify({"error": err}), 400
 
@@ -1211,6 +1244,102 @@ def export_midi():
     except Exception as e:
         app.logger.exception(f"Error en /export-midi: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route("/export-xml", methods=["POST"])
+def export_xml():
+    """
+    Endpoint para exportar XML con ediciones.
+    Recibe código Python, lo ejecuta y devuelve el XML como descarga.
+    """
+    try:
+        data = request.get_json()
+        code_str = data.get('code', '')
+        
+        if not code_str.strip():
+            return "Error: código vacío", 400
+        
+        # ✅ FIX: Ejecutar código con 4 valores de retorno
+        xml_payload, warnings_list, err, element_line_map = run_music21_snippet_any(code_str)
+        if err:
+            return jsonify({"error": err}), 400
+        
+        if not xml_payload or not xml_payload.strip():
+            return "Error: XML vacío", 500
+        
+        # Limpiar XML
+        xml_payload = xml_payload.lstrip('\ufeff').strip()
+        
+        # Generar nombre de archivo con timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f'partitura_editada_{timestamp}.musicxml'
+        
+        # Devolver como descarga
+        return Response(
+            xml_payload,
+            mimetype='application/vnd.recordare.musicxml+xml',
+            headers={
+                'Content-Disposition': f'attachment; filename={filename}',
+                'Content-Type': 'application/vnd.recordare.musicxml+xml; charset=utf-8'
+            }
+        )
+        
+    except Exception as e:
+        app.logger.exception(f"Error en /export-xml: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/validate-chord', methods=['POST'])
+def validate_chord():
+    """Valida si un texto es un acorde válido"""
+    try:
+        data = request.get_json()
+        chord_text = data.get('text', '').strip()
+        
+        if not chord_text:
+            return jsonify({'valid': False, 'error': 'Texto vacío'})
+        
+        # Normalizar e intentar crear ChordSymbol
+        normalized = normalize_chord_figure(chord_text)
+        
+        try:
+            cs = harmony.ChordSymbol(normalized)
+            return jsonify({
+                'valid': True,
+                'normalized': normalized if normalized != chord_text else None
+            })
+        except Exception as e:
+            return jsonify({
+                'valid': False,
+                'error': str(e)
+            })
+            
+    except Exception as e:
+        app.logger.exception(f"Error en /validate-chord: {e}")
+        return jsonify({'valid': False, 'error': str(e)}), 500
+
+@app.route('/validate-note', methods=['POST'])
+def validate_note():
+    """Valida si un texto es una nota válida (pitch)"""
+    try:
+        data = request.get_json()
+        note_text = data.get('text', '').strip()
+        
+        if not note_text:
+            return jsonify({'valid': False, 'error': 'Texto vacío'})
+        
+        # Intentar crear nota
+        try:
+            n = note.Note(note_text)
+            return jsonify({'valid': True})
+        except Exception as e:
+            return jsonify({
+                'valid': False,
+                'error': f'Nota inválida: {str(e)}'
+            })
+            
+    except Exception as e:
+        app.logger.exception(f"Error en /validate-note: {e}")
+        return jsonify({'valid': False, 'error': str(e)}), 500
 
 @app.route("/favicon.ico")
 def favicon():

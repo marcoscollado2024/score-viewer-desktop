@@ -68,6 +68,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const xml = await resp.text();
       lastLoadedXML = xml; // Guardar el XML
+      
+      // ✅ LEER MAPEO DEL HEADER
+      const mapeoHeader = resp.headers.get('X-Element-Line-Map');
+      let elementLineMap = {};
+      
+      if (mapeoHeader) {
+        try {
+          elementLineMap = JSON.parse(mapeoHeader);
+          window.elementLineMap = elementLineMap;
+          console.log(`[score-viewer] ✅ Mapeo recibido: ${Object.keys(elementLineMap).length} elemento(s)`);
+        } catch (e) {
+          console.error('[score-viewer] Error parseando mapeo:', e);
+        }
+      } else {
+        console.warn('[score-viewer] ⚠️ No se recibió mapeo del backend');
+      }
+      
       console.log('[score-viewer] POST /render-xml status', resp.status, 'len', xml.length);
 
       if (!resp.ok) throw new Error(xml || 'Error del servidor.');
@@ -99,8 +116,12 @@ document.addEventListener('DOMContentLoaded', () => {
       // Eliminar duplicados (textos con style="" vacío o sin transform)
       removeDuplicateTexts();
 
-      // NUEVO: Asignar IDs correctos basándose en código Python
-      assignCorrectIDsFromCode(code);
+      // ✅ CRÍTICO: Asignar IDs estables ANTES de initEditing
+      const stableMapping = assignCorrectIDsFromCode(code);
+      console.log(`[score-viewer] IDs estables asignados: ${Object.keys(stableMapping).length}`);
+
+      // ✅ NUEVO: Vincular usando mapeo del backend (DESPUÉS de IDs estables)
+      linkElementsFromBackend(elementLineMap);
 
       // Activar la lógica de edición
       if (typeof initEditing === 'function') {
@@ -290,6 +311,389 @@ document.addEventListener('DOMContentLoaded', () => {
       linkOverlayWithStaff(staffGroup);
     } else {
       console.warn('[score-viewer] No se encontraron elementos del pentagrama para agrupar');
+    }
+  }
+
+  // ====== ASIGNAR IDs ESTABLES DESDE CÓDIGO PYTHON ======
+  function assignCorrectIDsFromCode(pythonCode) {
+    console.log('[ID Mapping] Iniciando asignación de IDs estables...');
+    
+    const osmdSVG = container.querySelector('svg');
+    if (!osmdSVG) {
+      console.warn('[ID Mapping] No se encontró SVG de OSMD');
+      return {};
+    }
+    
+    // Mapeo: texto + compás + tipo → ID estable
+    const stableIdMap = {};
+    let elementCounter = 0;
+    
+    // 1. Parsear código Python para extraer elementos
+    const lines = pythonCode.split('\n');
+    const codeElements = []; // {tipo, texto, compas, idEstable}
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // ChordSymbol
+      if (line.includes('harmony.ChordSymbol(')) {
+        const match = line.match(/harmony\.ChordSymbol\(["'](.+?)["']\)/);
+        if (match) {
+          const texto = match[1];
+          const compas = detectarCompasPorLinea(lines, i);
+          const idEstable = `element_${elementCounter++}`;
+          codeElements.push({tipo: 'ChordSymbol', texto, compas, idEstable, linea: i});
+          console.log(`[ID Mapping] ChordSymbol "${texto}" → ${idEstable} (línea ${i})`);
+        }
+      }
+      
+      // TextExpression
+      if (line.includes('expressions.TextExpression(')) {
+        const match = line.match(/expressions\.TextExpression\(["'](.+?)["']\)/);
+        if (match) {
+          const texto = match[1];
+          const compas = detectarCompasPorLinea(lines, i);
+          const idEstable = `element_${elementCounter++}`;
+          codeElements.push({tipo: 'TextExpression', texto, compas, idEstable, linea: i});
+          console.log(`[ID Mapping] TextExpression "${texto}" → ${idEstable} (línea ${i})`);
+        }
+      }
+      
+      // Lyrics - ✅ CORREGIDO: Usar SIEMPRE línea del .lyric, NO línea de la nota
+      if (line.includes('.lyric =') || line.includes('.lyric=')) {
+        const match = line.match(/lyric\s*=\s*["'](.+?)["']/);
+        
+        if (match) {
+          const texto = match[1];
+          const compas = detectarCompasPorLinea(lines, i);
+          const idEstable = `element_${elementCounter++}`;
+          
+          // ✅ NUEVO: Calcular posición Y aproximada (lyrics van en orden de arriba-abajo)
+          // Cada lyric se asume que está aproximadamente en la misma Y que su nota padre
+          const estimatedY = (elementCounter - 1) * 50; // Estimación básica
+          
+          codeElements.push({
+            tipo: 'Lyric', 
+            texto, 
+            compas, 
+            idEstable, 
+            linea: i, // ✅ LÍNEA DEL .lyric, NO de la nota
+            estimatedY: estimatedY // Para matching por orden
+          });
+          
+          console.log(`[ID Mapping] Lyric "${texto}" (compás ${compas}) → ${idEstable} (línea ${i})`);
+        }
+      }
+      
+      // ✅ NUEVO: Notas - Extraer ID del código Python
+      if (line.includes('note.Note(') && line.includes('.id =')) {
+        // Formato: n10 = note.Note("D4", quarterLength=0.5); n10.lyric = "1";  n10.id = "n-m1-0";
+        const idMatch = line.match(/\.id\s*=\s*["'](.+?)["']/);
+        if (idMatch) {
+          const noteId = idMatch[1]; // ej: "n-m1-0"
+          const compas = detectarCompasPorLinea(lines, i);
+          
+          // Para notas, necesitamos buscar el lyric más cercano en el SVG
+          // Así que guardamos el ID del código Python para vinculación directa
+          codeElements.push({
+            tipo: 'Note',
+            noteId: noteId, // ID explícito del código
+            compas: compas,
+            linea: i
+          });
+          
+          console.log(`[ID Mapping] Note ID "${noteId}" (compás ${compas}) → línea ${i}`);
+        }
+      }
+      
+      // Title
+      if (line.includes('.title') && line.includes('=')) {
+        const match = line.match(/=\s*["'](.+?)["']/);
+        if (match) {
+          const texto = match[1];
+          const idEstable = `element_${elementCounter++}`;
+          codeElements.push({tipo: 'Title', texto, compas: 0, idEstable, linea: i});
+          console.log(`[ID Mapping] Title "${texto}" → ${idEstable} (línea ${i})`);
+        }
+      }
+    }
+    
+    // 2. Buscar elementos en SVG y asignar IDs estables (TEXTOS)
+    const allTexts = osmdSVG.querySelectorAll('text');
+    let matchedTexts = 0;
+    const usedElements = new Set(); // Para marcar elementos ya usados
+    
+    // ✅ MEJORADO: Agrupar elementos del código por tipo y texto
+    const elementsByTypeAndText = {};
+    codeElements.forEach(el => {
+      const key = `${el.tipo}_${el.texto}`;
+      if (!elementsByTypeAndText[key]) {
+        elementsByTypeAndText[key] = [];
+      }
+      elementsByTypeAndText[key].push(el);
+    });
+    
+    // ✅ NUEVO: Ordenar elementos SVG por posición Y (de arriba abajo)
+    const sortedTexts = Array.from(allTexts).sort((a, b) => {
+      const aY = a.getBBox().y;
+      const bY = b.getBBox().y;
+      return aY - bY;
+    });
+    
+    sortedTexts.forEach(textElement => {
+      const textoSVG = textElement.textContent.trim();
+      const key = `Lyric_${textoSVG}`; // Asumir que son lyrics por ahora
+      
+      // Buscar en grupo de elementos con mismo tipo y texto
+      let match = null;
+      if (elementsByTypeAndText[key] && elementsByTypeAndText[key].length > 0) {
+        // Tomar el PRIMER elemento no usado (en orden del código)
+        match = elementsByTypeAndText[key].find(el => !usedElements.has(el.idEstable));
+      }
+      
+      // Si no es lyric, buscar en otros tipos
+      if (!match) {
+        match = codeElements.find(el => 
+          el.texto === textoSVG && !usedElements.has(el.idEstable)
+        );
+      }
+      
+      if (match) {
+        // ✅ ASIGNAR ID ESTABLE
+        textElement.id = match.idEstable;
+        textElement.setAttribute('data-code-line', match.linea);
+        textElement.dataset.codeLine = match.linea; // Doble para compatibilidad
+        
+        stableIdMap[match.idEstable] = {
+          svgId: match.idEstable,
+          codeLine: match.linea,
+          originalText: textoSVG,
+          tipo: match.tipo
+        };
+        
+        // ✅ Marcar como usado para evitar duplicados
+        usedElements.add(match.idEstable);
+        
+        matchedTexts++;
+        console.log(`[ID Mapping] ✅ Text Match: "${textoSVG}" → ${match.idEstable} (línea ${match.linea})`);
+      } else {
+        // No match: asignar ID temporal
+        const tempId = `temp_${textoSVG.replace(/\s+/g, '-')}_${Date.now()}`;
+        textElement.id = tempId;
+        console.log(`[ID Mapping] ⚠️ Sin match: "${textoSVG}" → ${tempId} (manual)`);
+      }
+    });
+    
+    console.log(`[ID Mapping] ✅ ${matchedTexts} textos vinculados`);
+    
+    // 3. ✅ NUEVO: Buscar NOTAS (ellipses) y asignar IDs por compás
+    const allNotes = Array.from(osmdSVG.querySelectorAll('ellipse'));
+    const notesByMeasure = {}; // Agrupar notas por compás
+    
+    // Agrupar notas SVG por compás
+    allNotes.forEach(noteEl => {
+      const measureNum = calcularCompasDesdeElemento(noteEl);
+      if (!notesByMeasure[measureNum]) {
+        notesByMeasure[measureNum] = [];
+      }
+      notesByMeasure[measureNum].push(noteEl);
+    });
+    
+    // Agrupar IDs de notas del código por compás
+    const noteIdsByMeasure = {};
+    codeElements.filter(el => el.tipo === 'Note').forEach(noteData => {
+      if (!noteIdsByMeasure[noteData.compas]) {
+        noteIdsByMeasure[noteData.compas] = [];
+      }
+      noteIdsByMeasure[noteData.compas].push(noteData);
+    });
+    
+    // Matchear notas por compás en orden (izquierda→derecha en SVG, orden del código)
+    let matchedNotes = 0;
+    Object.keys(noteIdsByMeasure).forEach(measureNum => {
+      const codeNotesInMeasure = noteIdsByMeasure[measureNum];
+      const svgNotesInMeasure = notesByMeasure[measureNum] || [];
+      
+      // Ordenar notas SVG por X (izquierda→derecha)
+      svgNotesInMeasure.sort((a, b) => {
+        return a.getBoundingClientRect().left - b.getBoundingClientRect().left;
+      });
+      
+      // Matchear: nota N del SVG → nota N del código en este compás
+      const minLength = Math.min(codeNotesInMeasure.length, svgNotesInMeasure.length);
+      for (let i = 0; i < minLength; i++) {
+        const svgNote = svgNotesInMeasure[i];
+        const codeNote = codeNotesInMeasure[i];
+        
+        // Asignar ID del código a la nota SVG
+        svgNote.id = codeNote.noteId;
+        svgNote.dataset.codeLine = codeNote.linea;
+        
+        matchedNotes++;
+        
+        if (matchedNotes <= 5) {
+          console.log(`[ID Mapping] ✅ Note Match: Compás ${measureNum}, Nota #${i+1} → "${codeNote.noteId}" (línea ${codeNote.linea})`);
+        }
+      }
+    });
+    
+    console.log(`[ID Mapping] ✅ ${matchedNotes} notas vinculadas`);
+    
+    // Guardar mapeo global
+    window.stableMapping = stableIdMap;
+    
+    return stableIdMap;
+  }
+  
+  // Helper: Detectar compás por línea de código
+  function detectarCompasPorLinea(lines, lineIndex) {
+    // Buscar hacia atrás la declaración de compás más cercana
+    for (let i = lineIndex; i >= Math.max(0, lineIndex - 20); i--) {
+      const line = lines[i];
+      if (line.includes('stream.Measure(')) {
+        // ✅ MEJORADO: Detectar ambos formatos
+        // Formato 1: stream.Measure(number=1)
+        let match = line.match(/Measure\(number=(\d+)\)/);
+        if (match) return parseInt(match[1]);
+        
+        // Formato 2: stream.Measure(1) (antiguo)
+        match = line.match(/Measure\((\d+)\)/);
+        if (match) return parseInt(match[1]);
+      }
+    }
+    return 1; // Default: compás 1
+  }
+  
+  // ====== MAPEAR NOTAS GLOBALMENTE (SIN DEPENDER DE COMPASES) ======
+  function mapNotesGlobally() {
+    const osmdSVG = container.querySelector('svg');
+    if (!osmdSVG) {
+      console.warn('[Note Map] No se encontró SVG de OSMD');
+      return;
+    }
+    
+    // 1. Obtener TODAS las notas del SVG ordenadas por X (izquierda→derecha)
+    const allNotes = Array.from(osmdSVG.querySelectorAll('ellipse, path[d*="M"]'))
+      .filter(el => {
+        // Filtrar solo elementos que parecen notas (ellipses o paths pequeños)
+        try {
+          const bbox = el.getBBox();
+          // Ellipses son notas, paths con cierto tamaño también
+          return el.tagName === 'ellipse' || (el.tagName === 'path' && bbox.width < 20 && bbox.height < 20);
+        } catch (e) {
+          return false;
+        }
+      })
+      .sort((a, b) => {
+        const aX = a.getBoundingClientRect().left;
+        const bX = b.getBoundingClientRect().left;
+        return aX - bX;
+      });
+    
+    // 2. Obtener TODAS las note.Note() del código en orden
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
+    const noteLinesInOrder = [];
+    
+    lines.forEach((line, index) => {
+      if (line.includes('note.Note(')) {
+        noteLinesInOrder.push(index);
+      }
+    });
+    
+    console.log(`[Note Map] ${allNotes.length} notas en SVG, ${noteLinesInOrder.length} note.Note() en código`);
+    
+    // 3. Matchear: Nota N del SVG → note.Note() N del código
+    let matched = 0;
+    allNotes.forEach((noteHead, index) => {
+      if (noteLinesInOrder[index] !== undefined) {
+        noteHead.dataset.codeLine = noteLinesInOrder[index];
+        noteHead.id = `note_${index}`;
+        matched++;
+        
+        if (index < 5) { // Log primeras 5 para debug
+          console.log(`[Note Map] Nota #${index+1} → línea ${noteLinesInOrder[index]} (ID: note_${index})`);
+        }
+      }
+    });
+    
+    console.log(`[Note Map] ✅ ${matched} nota(s) mapeada(s) globalmente`);
+  }
+
+  // Helper: Calcular compás desde estructura DOM de OSMD
+  function calcularCompasDesdeElemento(element) {
+    // ✅ MÉTODO ROBUSTO: Usar jerarquía DOM de OSMD
+    // OSMD organiza elementos en grupos <g> que representan compases
+    
+    let parent = element.parentElement;
+    let measureCount = 0;
+    
+    // 1. Subir en la jerarquía DOM buscando el grupo del compás
+    while (parent && parent.tagName === 'g') {
+      // Buscar hermanos previos que parezcan compases (tienen líneas de compás)
+      const siblings = Array.from(parent.parentElement?.children || []);
+      const currentIndex = siblings.indexOf(parent);
+      
+      // Contar cuántos grupos "compás" hay antes de este
+      for (let i = 0; i < currentIndex; i++) {
+        const sibling = siblings[i];
+        if (sibling.tagName === 'g') {
+          // Un grupo es un compás si contiene líneas verticales (barlines)
+          const hasBarline = sibling.querySelector('path[d*="M"], line');
+          if (hasBarline) {
+            measureCount++;
+          }
+        }
+      }
+      
+      // Si encontramos evidencia de compás en este nivel, retornar
+      const hasBarline = parent.querySelector('path[d*="M"], line');
+      if (hasBarline && measureCount > 0) {
+        return measureCount + 1; // +1 porque el compás actual cuenta
+      }
+      
+      parent = parent.parentElement;
+    }
+    
+    // 2. FALLBACK: Si no encontramos por estructura, usar posición X mejorada
+    const osmdSVG = container.querySelector('svg');
+    if (!osmdSVG) return 1;
+    
+    try {
+      const elementX = element.getBBox().x;
+      
+      // Contar todos los grupos que parecen compases en el SVG
+      const allGroups = osmdSVG.querySelectorAll('g');
+      const measureGroups = Array.from(allGroups).filter(g => 
+        g.querySelector('path[d*="M"], line')
+      );
+      
+      if (measureGroups.length === 0) return 1;
+      
+      // Encontrar el compás más cercano por posición X
+      let closestMeasure = 1;
+      let minDistance = Infinity;
+      
+      measureGroups.forEach((group, index) => {
+        try {
+          const groupX = group.getBBox().x;
+          const distance = Math.abs(elementX - groupX);
+          
+          if (distance < minDistance) {
+            minDistance = distance;
+            closestMeasure = index + 1;
+          }
+        } catch (e) {
+          // Ignorar grupos sin bbox válido
+        }
+      });
+      
+      console.log(`[Compás Calc] Elemento en X=${elementX.toFixed(0)} → Compás ${closestMeasure} (${measureGroups.length} compases totales)`);
+      return closestMeasure;
+      
+    } catch (e) {
+      console.warn(`[Compás Calc] Error calculando compás:`, e);
+      return 1; // Fallback final
     }
   }
 
@@ -789,123 +1193,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  // ====== ASIGNAR IDS CORRECTOS DESDE CÓDIGO PYTHON ======
-  function assignCorrectIDsFromCode(pythonCode) {
+  // ====== VINCULACIÓN SIMPLE: Usar mapeo del backend ======
+  window.elementLineMap = {}; // Mapeo global ID→línea
+  
+  function linkElementsFromBackend(idToLineMap) {
     const osmdSVG = container.querySelector('svg');
     if (!osmdSVG) return;
-
-    const lines = pythonCode.split('\n');
-    const idMappings = []; // {text, placement, id, order, type}
-
-    // Parsear código Python para extraer IDs CON ORDEN Y TIPO
-    let orderCounter = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      
-      // Buscar declaraciones de TextExpression o ChordSymbol
-      const isTextExpression = line.includes('TextExpression(');
-      const isChordSymbol = line.includes('ChordSymbol(');
-      
-      if (isTextExpression || isChordSymbol) {
-        const textMatch = line.match(/["'](.+?)["']/);
-        if (!textMatch) continue;
-        
-        const text = textMatch[1];
-        const type = isChordSymbol ? 'ChordSymbol' : 'TextExpression';
-        let placement = 'above'; // Default
-        let id = null;
-        
-        // Buscar placement e ID en las siguientes líneas
-        for (let j = i + 1; j < i + 5 && j < lines.length; j++) {
-          if (lines[j].includes('.placement') && lines[j].includes('below')) {
-            placement = 'below';
-          }
-          if (lines[j].includes('.id =')) {
-            const idMatch = lines[j].match(/\.id\s*=\s*["'](.+?)["']/);
-            if (idMatch) {
-              id = idMatch[1];
-              break;
-            }
-          }
-        }
-        
-        if (id) {
-          idMappings.push({ text, placement, id, order: orderCounter++, type });
-          console.log(`[ID Mapping] #${orderCounter-1} "${text}" (${type}, ${placement}) → ID: "${id}"`);
-        }
-      }
-    }
-
-    // Asignar IDs a elementos SVG POR ORDEN DE APARICIÓN
-    const allTexts = Array.from(osmdSVG.querySelectorAll('text'));
-    let assigned = 0;
-
-    // NUEVO: Separar ChordSymbols (harmony) de otros textos
-    const chordSymbols = Array.from(osmdSVG.querySelectorAll('[class*="Chord"], [class*="harmony"]'));
-    const regularTexts = allTexts.filter(t => !chordSymbols.includes(t));
-
-    // Agrupar por contenido
-    const textsByContent = {};
-    const chordsByContent = {};
     
-    regularTexts.forEach((textEl, index) => {
-      const content = textEl.textContent.trim();
-      if (!textsByContent[content]) {
-        textsByContent[content] = [];
+    let linked = 0;
+    
+    // Recorrer TODOS los elementos con ID
+    const allElements = osmdSVG.querySelectorAll('[id]');
+    
+    allElements.forEach(el => {
+      const elementId = el.id;
+      
+      if (idToLineMap[elementId] !== undefined) {
+        const lineNumber = idToLineMap[elementId];
+        el.dataset.codeLine = lineNumber;
+        linked++;
+        console.log(`[Link] "${elementId}" → línea ${lineNumber}`);
       }
-      textsByContent[content].push({ element: textEl, index });
     });
     
-    chordSymbols.forEach((textEl, index) => {
-      const content = textEl.textContent.trim();
-      if (!chordsByContent[content]) {
-        chordsByContent[content] = [];
-      }
-      chordsByContent[content].push({ element: textEl, index });
-    });
-
-    // Asignar IDs respetando orden y tipo
-    idMappings.forEach(mapping => {
-      // Elegir fuente correcta según tipo
-      const sourceMap = mapping.type === 'ChordSymbol' ? chordsByContent : textsByContent;
-      const candidates = sourceMap[mapping.text];
-      
-      if (!candidates || candidates.length === 0) {
-        console.warn(`[ID Assignment] No encontrados candidatos para "${mapping.text}" (${mapping.type})`);
-        return;
-      }
-
-      // Si solo hay uno, asignarlo directamente
-      if (candidates.length === 1) {
-        candidates[0].element.id = mapping.id;
-        assigned++;
-        console.log(`[ID Assigned] "${mapping.text}" → "${mapping.id}" (único, ${mapping.type})`);
-        return;
-      }
-
-      // Si hay múltiples, usar placement Y orden
-      const filtered = candidates.filter(c => {
-        const y = parseFloat(c.element.getAttribute('y'));
-        const isAbove = y < 200;
-        const isBelow = y >= 200;
-        return (mapping.placement === 'above' && isAbove) || (mapping.placement === 'below' && isBelow);
-      });
-
-      if (filtered.length > 0) {
-        // Tomar el primero disponible sin ID
-        const target = filtered.find(c => !c.element.id || c.element.id.trim() === '');
-        if (target) {
-          target.element.id = mapping.id;
-          assigned++;
-          console.log(`[ID Assigned] "${mapping.text}" → "${mapping.id}" (${mapping.type}, placement: ${mapping.placement})`);
-        }
-      }
-    });
-
-    console.log(`[ID Assignment] ${assigned} ID(s) asignado(s) correctamente de ${idMappings.length} total`);
+    console.log(`[Link] ✅ ${linked}/${Object.keys(idToLineMap).length} elementos vinculados`);
   }
 
-  // ====== ACTUALIZAR CÓDIGO PYTHON AUTOMÁTICAMENTE ======
+  // ====== ACTUALIZAR CÓDIGO PYTHON AUTOMÁTICAMENTE (SISTEMA SIMPLE) ======
   window.updatePythonCode = function(textElement) {
     const codeEditor = document.getElementById('code-editor');
     if (!codeEditor) return;
@@ -914,29 +1228,272 @@ document.addEventListener('DOMContentLoaded', () => {
     const edit = window.edits ? window.edits[textElement.id] : null;
     if (!edit) return;
 
-    const elementId = textElement.id || '';
-    
-    // DETECTAR TIPO POR ID O CONTENIDO (orden importa!)
-    // 1. Primero detectar ChordSymbol (por ID o por patrón de acorde)
-    if (elementId.includes('cifrado') || isChordPattern(textContent)) {
-      updateChordSymbolInCode(elementId, textContent, edit, codeEditor);
-    } 
-    // 2. Luego TextExpression (grados, modos, intervalos)
-    else if (elementId.includes('grado') || elementId.includes('modo') || elementId.includes('intervalos')) {
-      updateTextExpressionInCode(elementId, textContent, edit, codeEditor);
-    } 
-    // 3. Lyrics (números con/sin alteraciones)
-    else if (elementId.match(/^\d+/) || textContent.match(/^[♭♯]?\d+$/)) {
-      updateLyricInCode(elementId, textContent, edit, codeEditor);
-    } 
-    // 4. Título (solo si realmente es el título)
-    else if (elementId.includes('title') || elementId === 'Untitled-0' || isTitleElement(textElement)) {
-      updateTitleInCode(elementId, textContent, edit, codeEditor);
-    } 
-    else {
-      console.warn(`[Python Update] Tipo desconocido para ID "${elementId}", texto: "${textContent}"`);
+    // ✅ SISTEMA SIMPLE: Usar data-codeLine directamente
+    if (!textElement.dataset || textElement.dataset.codeLine === undefined) {
+        console.log(`[Python Update] Elemento sin data-codeLine (manual), skip`);
+        return;
     }
+
+    const lineNumber = parseInt(textElement.dataset.codeLine);
+    let code = getCodeEditorValue();
+    const lines = code.split('\n');
+    
+    console.log(`[Python Update] ✅ Usando línea ${lineNumber} para "${textContent}"`);
+    
+    // BÚSQUEDA UNIVERSAL POR ID
+    let targetLineIndex = -1;
+    let varName = null;
+    let elementType = null;
+    
+    // ✅ PRIMERO: Detectar si es el título por características visuales
+    const y = parseFloat(textElement.getAttribute('y'));
+    const fontSize = parseFloat(textElement.getAttribute('font-size')) || 20;
+    const isLikelyTitle = y < 100 && fontSize > 22; // Título suele estar arriba y ser grande
+    
+    if (isLikelyTitle) {
+      // Buscar .metadata.title o .title directamente
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('.title') && lines[i].includes('=')) {
+          targetLineIndex = i;
+          elementType = 'Title';
+          console.log(`[Python Update] ✅ Detectado como título por características visuales (y=${y}, fontSize=${fontSize})`);
+          break;
+        }
+      }
+    }
+    
+    // Si no es título, buscar por ID normalmente
+    if (targetLineIndex === -1) {
+      const elementId = textElement.id; // ✅ DECLARAR variable local
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(`.id = "${elementId}"`)) {
+          // Encontrado ID, buscar declaración hacia arriba
+          for (let j = i; j >= Math.max(0, i - 10); j--) {
+            const line = lines[j];
+            
+            if (line.includes('harmony.ChordSymbol')) {
+              elementType = 'ChordSymbol';
+              const match = line.match(/(\w+)\s*=\s*harmony\.ChordSymbol/);
+              if (match) varName = match[1];
+              targetLineIndex = j;
+              break;
+            } else if (line.includes('expressions.TextExpression')) {
+              elementType = 'TextExpression';
+              const match = line.match(/(\w+)\s*=\s*expressions\.TextExpression/);
+              if (match) varName = match[1];
+              targetLineIndex = j;
+              break;
+            } else if (line.includes('.lyric')) {
+              elementType = 'Lyric';
+              targetLineIndex = j;
+              break;
+            } else if (line.includes('.title')) {
+              elementType = 'Title';
+              targetLineIndex = j;
+              break;
+            }
+          }
+          if (targetLineIndex !== -1) break;
+        }
+      }
+    }
+    
+    // Si NO se encuentra por ID, buscar por CONTENIDO como fallback
+    if (targetLineIndex === -1) {
+      // PRIMERO: Buscar si es el título (por contenido en .title)
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.trim().startsWith('#')) continue;
+        
+        if (line.includes('.title') && line.includes('=') && 
+            (line.includes(`"${textContent}"`) || line.includes(`'${textContent}'`))) {
+          targetLineIndex = i;
+          elementType = 'Title';
+          console.log(`[Python Update] ✅ Encontrado título por contenido en línea ${i}`);
+          break;
+        }
+      }
+      
+      // Si no es título, buscar otros tipos
+      if (targetLineIndex === -1) {
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.trim().startsWith('#')) continue;
+          
+          if ((line.includes('ChordSymbol') || line.includes('TextExpression')) && 
+              (line.includes(`"${textContent}"`) || line.includes(`'${textContent}'`))) {
+            targetLineIndex = i;
+            
+            if (line.includes('ChordSymbol')) {
+              elementType = 'ChordSymbol';
+              const match = line.match(/(\w+)\s*=\s*harmony\.ChordSymbol/);
+              if (match) varName = match[1];
+            } else {
+              elementType = 'TextExpression';
+              const match = line.match(/(\w+)\s*=\s*expressions\.TextExpression/);
+              if (match) varName = match[1];
+            }
+            break;
+          } else if (line.includes(`lyric="${textContent}"`) || line.includes(`lyric='${textContent}'`)) {
+            targetLineIndex = i;
+            elementType = 'Lyric';
+            break;
+          }
+        }
+      }
+    }
+    
+    if (targetLineIndex === -1) {
+      console.warn(`[Python Update] ❌ No encontrado: "${textContent}" (ID: ${textElement.id})`);
+      return;
+    }
+    
+    console.log(`[Python Update] ✅ Encontrado tipo ${elementType} en línea ${targetLineIndex}, var: ${varName}`);
+    
+    // ACTUALIZAR SEGÚN TIPO
+    if (elementType === 'Lyric') {
+      updateLyricInCodeUniversal(targetLineIndex, textContent, edit, lines);
+    } else if (elementType === 'Title') {
+      updateTitleInCodeUniversal(targetLineIndex, textContent, edit, lines);
+    } else if (varName) {
+      // ChordSymbol o TextExpression
+      updateGenericElementInCode(targetLineIndex, varName, textContent, edit, lines);
+    }
+    
+    setCodeEditorValue(lines.join('\n'));
+    console.log(`[Python Update] ✅ Código actualizado para "${textContent}"`);
   };
+  
+  // FUNCIÓN UNIVERSAL para ChordSymbol y TextExpression
+  function updateGenericElementInCode(startLine, varName, newText, edit, lines) {
+    const indent = lines[startLine].match(/^(\s*)/)[1];
+    
+    // 1. ✅ MEJORADO: Verificar si ya está actualizado antes de intentar
+    if (edit.textContent) {
+      const beforeReplace = lines[startLine];
+      
+      // ✅ Verificar si ya contiene el texto correcto
+      if (beforeReplace.includes(`"${edit.textContent}"`) || beforeReplace.includes(`'${edit.textContent}'`)) {
+        console.log(`[Python] Texto ya actualizado en línea ${startLine}: "${edit.textContent}"`);
+        // Ya está correcto, skip
+      } else {
+        // Intentar actualizar
+        lines[startLine] = lines[startLine].replace(/["'](.+?)["']/, `"${edit.textContent}"`);
+        
+        if (beforeReplace !== lines[startLine]) {
+          console.log(`[Python] Texto actualizado directamente: "${edit.textContent}"`);
+        } else {
+          console.warn(`[Python] ⚠️ No se pudo actualizar texto en línea ${startLine}`);
+        }
+      }
+    }
+    
+    // 2. Borrar líneas style existentes
+    let i = startLine + 1;
+    while (i < lines.length) {
+      if (lines[i].trim().startsWith(`${varName}.style.`)) {
+        lines.splice(i, 1);
+        continue;
+      }
+      if (lines[i].trim() && !lines[i].includes(varName)) break;
+      i++;
+    }
+    
+    // 3. ✅ MEJORADO: Encontrar punto de inserción ROBUSTO
+    let insertIndex = startLine + 1;
+    
+    // Buscar la ÚLTIMA línea que menciona esta variable antes de otra variable o código no relacionado
+    for (let j = startLine + 1; j < lines.length && j < startLine + 15; j++) {
+      const line = lines[j].trim();
+      
+      // Si es una línea de esta variable (cualquier propiedad), actualizar insertIndex
+      if (line.startsWith(`${varName}.`)) {
+        insertIndex = j + 1;
+        continue;
+      }
+      
+      // Si es una línea relacionada con inserción/append de esta variable
+      if (line.includes(`.insert(`) && line.includes(varName)) {
+        insertIndex = j + 1;
+        continue;
+      }
+      if (line.includes(`.append(${varName})`)) {
+        insertIndex = j + 1;
+        continue;
+      }
+      
+      // Si encontramos otra variable o código no relacionado, parar
+      if (line && !line.startsWith('#') && !line.includes(varName)) {
+        break;
+      }
+    }
+    
+    // 4. Insertar nuevas líneas style
+    const newLines = [];
+    const xTenths = Math.round((edit.x || 0) * 2.5);
+    const yTenths = Math.round((edit.y || 0) * 2.5);
+    
+    if (xTenths !== 0) newLines.push(`${indent}${varName}.style.absoluteX = ${xTenths}`);
+    if (yTenths !== 0) newLines.push(`${indent}${varName}.style.absoluteY = ${yTenths}`);
+    if (edit.scale && edit.scale !== 1.0) {
+      const scalePercent = Math.round(edit.scale * 100);
+      newLines.push(`${indent}${varName}.style.fontSize = '${scalePercent}%'`);
+    }
+    
+    if (newLines.length > 0) {
+      lines.splice(insertIndex, 0, ...newLines);
+      console.log(`[Python] ✅ Insertadas ${newLines.length} líneas en índice ${insertIndex}: x=${xTenths}, y=${yTenths}, scale=${edit.scale}`);
+    } else {
+      console.log(`[Python] ⚠️ Sin cambios de posición/escala para insertar`);
+    }
+  }
+  
+  // FUNCIÓN UNIVERSAL para Lyrics
+  function updateLyricInCodeUniversal(lineIndex, newText, edit, lines) {
+    let modified = false;
+    
+    // Obtener texto actual
+    const currentMatch = lines[lineIndex].match(/lyric\s*=\s*["'](.+?)["']/);
+    const currentText = currentMatch ? currentMatch[1] : newText;
+    
+    // 1. Actualizar texto
+    if (edit.textContent && edit.textContent !== currentText) {
+      lines[lineIndex] = lines[lineIndex].replace(`lyric="${currentText}"`, `lyric="${edit.textContent}"`);
+      lines[lineIndex] = lines[lineIndex].replace(`lyric='${currentText}'`, `lyric='${edit.textContent}'`);
+      modified = true;
+      console.log(`[Python] Lyric texto: "${currentText}" → "${edit.textContent}"`);
+    }
+    
+    // 2. Actualizar escala
+    if (edit.scale && edit.scale !== 1.0) {
+      const scalePercent = Math.round(edit.scale * 100);
+      if (lines[lineIndex].includes('fontSize')) {
+        lines[lineIndex] = lines[lineIndex].replace(/fontSize\s*=\s*['"]?\d+%?['"]?/, `fontSize="${scalePercent}%"`);
+      } else {
+        const lyricMatch = lines[lineIndex].match(/(lyric\s*=\s*['"][^'"]*['"])/);
+        if (lyricMatch) {
+          lines[lineIndex] = lines[lineIndex].replace(lyricMatch[1], `${lyricMatch[1]}, fontSize="${scalePercent}%"`);
+        }
+      }
+      modified = true;
+      console.log(`[Python] Lyric escala: ${scalePercent}%`);
+    }
+    
+    return modified;
+  }
+  
+  // FUNCIÓN UNIVERSAL para Title
+  function updateTitleInCodeUniversal(lineIndex, newText, edit, lines) {
+    if (edit.textContent) {
+      const currentMatch = lines[lineIndex].match(/=\s*["'](.*)["']/);
+      const currentText = currentMatch ? currentMatch[1] : '';
+      
+      if (edit.textContent !== currentText) {
+        lines[lineIndex] = lines[lineIndex].replace(/=\s*["'].*["']/, `= "${edit.textContent}"`);
+        console.log(`[Python] Title: "${currentText}" → "${edit.textContent}"`);
+      }
+    }
+  }
   
   // Función auxiliar para detectar patrones de acordes
   function isChordPattern(text) {
@@ -952,332 +1509,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Si está muy arriba (y < 50) y tiene fontSize grande (>20)
     return y < 50 && fontSize > 20;
-  }
-
-  // ====== ACTUALIZAR ChordSymbol ======
-  function updateChordSymbolInCode(elementId, textContent, edit, codeEditor) {
-    let code = getCodeEditorValue();
-    const lines = code.split('\n');
-    const originalText = edit.textContent || textContent;
-
-    console.log(`[Python Update ChordSymbol] Buscando: "${textContent}", ID: "${elementId}"`);
-
-    // Buscar línea con .id que coincida
-    let targetLineIndex = -1;
-    let csVarName = null;
-    
-    // Buscar primero por ID (más confiable)
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(`.id = "${elementId}"`)) {
-        // Encontramos el ID, ahora buscar hacia arriba la declaración
-        for (let j = i; j >= Math.max(0, i - 3); j--) {
-          if (lines[j].includes('harmony.ChordSymbol')) {
-            targetLineIndex = j;
-            const match = lines[j].match(/(\w+)\s*=\s*harmony\.ChordSymbol/);
-            if (match) csVarName = match[1];
-            console.log(`[Python Update ChordSymbol] Encontrado por ID en línea ${j}, var: ${csVarName}`);
-            break;
-          }
-        }
-        if (targetLineIndex !== -1) break;
-      }
-    }
-
-    // Fallback: buscar por texto
-    if (targetLineIndex === -1) {
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('harmony.ChordSymbol') && 
-            (lines[i].includes(`"${textContent}"`) || lines[i].includes(`"${originalText}"`))) {
-          targetLineIndex = i;
-          const match = lines[i].match(/(\w+)\s*=\s*harmony\.ChordSymbol/);
-          if (match) csVarName = match[1];
-          console.log(`[Python Update ChordSymbol] Encontrado por texto en línea ${i}, var: ${csVarName}`);
-          break;
-        }
-      }
-    }
-
-    if (targetLineIndex === -1) {
-      console.warn(`[Python Update ChordSymbol] ❌ No encontrado: "${textContent}", ID: "${elementId}"`);
-      return;
-    }
-
-    if (!csVarName) {
-      const varMatch = lines[targetLineIndex].match(/(\w+)\s*=\s*harmony\.ChordSymbol/);
-      if (!varMatch) {
-        console.warn(`[Python Update ChordSymbol] ❌ No se pudo extraer variable`);
-        return;
-      }
-      csVarName = varMatch[1];
-    }
-
-    if (!csVarName) {
-      const varMatch = lines[targetLineIndex].match(/(\w+)\s*=\s*harmony\.ChordSymbol/);
-      if (!varMatch) return;
-      csVarName = varMatch[1];
-    }
-
-    const indent = lines[targetLineIndex].match(/^(\s*)/)[1];
-
-    // Actualizar texto si cambió (obtener texto original de la línea)
-    const currentTextMatch = lines[targetLineIndex].match(/ChordSymbol\(["'](.+?)["']\)/);
-    const currentText = currentTextMatch ? currentTextMatch[1] : textContent;
-    
-    if (edit.textContent && edit.textContent !== currentText) {
-      lines[targetLineIndex] = lines[targetLineIndex].replace(`"${currentText}"`, `"${edit.textContent}"`);
-      console.log(`[Python Update ChordSymbol] Texto actualizado: "${currentText}" → "${edit.textContent}"`);
-    }
-
-    // Borrar líneas style existentes
-    let i = targetLineIndex + 1;
-    while (i < lines.length) {
-      if (lines[i].trim().startsWith(`${csVarName}.style.`)) {
-        lines.splice(i, 1);
-        continue;
-      }
-      if (lines[i].trim() && !lines[i].includes(csVarName)) break;
-      i++;
-    }
-
-    // Insertar nuevas líneas style
-    let insertIndex = targetLineIndex + 1;
-    for (let j = targetLineIndex + 1; j < lines.length && j < targetLineIndex + 10; j++) {
-      if (lines[j].includes(`${csVarName}.id`)) insertIndex = j + 1;
-      if (lines[j].trim() && !lines[j].includes(csVarName)) break;
-    }
-
-    const newLines = [];
-    const xTenths = Math.round((edit.x || 0) * 2.5);
-    const yTenths = Math.round((edit.y || 0) * 2.5);
-    newLines.push(`${indent}${csVarName}.style.absoluteX = ${xTenths}`);
-    newLines.push(`${indent}${csVarName}.style.absoluteY = ${yTenths}`);
-    
-    if (edit.scale && edit.scale !== 1.0) {
-      const scalePercent = Math.round(edit.scale * 100);
-      newLines.push(`${indent}${csVarName}.style.fontSize = '${scalePercent}%'`);
-    }
-    
-    lines.splice(insertIndex, 0, ...newLines);
-    setCodeEditorValue(lines.join('\n'));
-    console.log(`[Python Update ChordSymbol] ✅ "${textContent}"`);
-  }
-
-  // ====== ACTUALIZAR Title ======
-  function updateTitleInCode(elementId, textContent, edit, codeEditor) {
-    let code = codeEditor.value;
-    const lines = code.split('\n');
-
-    console.log(`[Python Update Title] Buscando título, ID: "${elementId}", texto: "${textContent}"`);
-    console.log(`[Python Update Title] Edit:`, edit);
-
-    // Buscar línea con metadata.title o .title
-    let targetLineIndex = -1;
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.trim().startsWith('#')) continue;
-      
-      // Buscar por metadata.title o simplemente .title
-      if ((line.includes('.metadata') && line.includes('.title')) || 
-          (line.includes('.title') && line.includes('='))) {
-        targetLineIndex = i;
-        console.log(`[Python Update Title] Encontrado en línea ${i}: "${line.trim()}"`);
-        break;
-      }
-    }
-
-    if (targetLineIndex === -1) {
-      console.warn(`[Python Update Title] ❌ No encontrada línea con .title`);
-      return;
-    }
-
-    let modified = false;
-
-    // Actualizar texto si cambió
-    if (edit.textContent) {
-      // Obtener texto actual de la línea
-      const currentTextMatch = lines[targetLineIndex].match(/=\s*["'](.*)["']/);
-      const currentText = currentTextMatch ? currentTextMatch[1] : '';
-      
-      if (edit.textContent !== currentText) {
-        lines[targetLineIndex] = lines[targetLineIndex].replace(
-          /=\s*["'].*["']/, 
-          `= "${edit.textContent}"`
-        );
-        modified = true;
-        console.log(`[Python Update Title] Texto actualizado: "${currentText}" → "${edit.textContent}"`);
-      }
-    }
-
-    if (modified) {
-      codeEditor.value = lines.join('\n');
-      codeEditor.dispatchEvent(new Event('input', { bubbles: true }));
-      console.log(`[Python Update Title] ✅ Actualización completa`);
-    } else {
-      console.log(`[Python Update Title] ⚠️ Sin cambios detectados`);
-    }
-  }
-
-  // ====== ACTUALIZAR TextExpression ======
-  function updateTextExpressionInCode(elementId, textContent, edit, codeEditor) {
-    let code = getCodeEditorValue();
-    const lines = code.split('\n');
-
-    console.log(`[Python Update TextExpression] Buscando ID: "${elementId}", texto: "${textContent}"`);
-
-    // NUEVO: Buscar PRIMERO por ID (más confiable)
-    let targetLineIndex = -1;
-    let varName = null;
-    
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(`.id = "${elementId}"`)) {
-        // Encontrado, buscar hacia arriba la declaración TextExpression
-        for (let j = i; j >= Math.max(0, i - 5); j--) {
-          if (lines[j].includes('TextExpression')) {
-            targetLineIndex = j;
-            const match = lines[j].match(/(\w+)\s*=\s*expressions\.TextExpression/);
-            if (match) varName = match[1];
-            console.log(`[Python Update TextExpression] Encontrado por ID en línea ${j}, var: ${varName}`);
-            break;
-          }
-        }
-        if (targetLineIndex !== -1) break;
-      }
-    }
-
-    if (targetLineIndex === -1) {
-      console.warn(`[Python Update TextExpression] ❌ No encontrado ID: "${elementId}"`);
-      return;
-    }
-
-    if (!varName) {
-      const varMatch = lines[targetLineIndex].match(/(\w+)\s*=\s*expressions\.TextExpression/);
-      if (!varMatch) return;
-      varName = varMatch[1];
-    }
-
-    const indent = lines[targetLineIndex].match(/^(\s*)/)[1];
-
-    // Actualizar texto si cambió (obtener texto original de la línea)
-    const currentTextMatch = lines[targetLineIndex].match(/TextExpression\(["'](.+?)["']\)/);
-    const currentText = currentTextMatch ? currentTextMatch[1] : textContent;
-    
-    if (edit.textContent && edit.textContent !== currentText) {
-      lines[targetLineIndex] = lines[targetLineIndex].replace(`"${currentText}"`, `"${edit.textContent}"`);
-      console.log(`[Python Update TextExpression] Texto actualizado: "${currentText}" → "${edit.textContent}"`);
-    }
-
-    // Borrar líneas style existentes
-    let i = targetLineIndex + 1;
-    while (i < lines.length) {
-      if (lines[i].trim().startsWith(`${varName}.style.`)) {
-        lines.splice(i, 1);
-        continue;
-      }
-      if (lines[i].trim() && !lines[i].includes(varName)) break;
-      i++;
-    }
-
-    // Insertar nuevas líneas style
-    let insertIndex = targetLineIndex + 1;
-    for (let j = targetLineIndex + 1; j < lines.length && j < targetLineIndex + 10; j++) {
-      if (lines[j].includes(`${varName}.placement`) || lines[j].includes(`${varName}.id`)) {
-        insertIndex = j + 1;
-      }
-      if (lines[j].trim() && !lines[j].includes(varName)) break;
-    }
-
-    const newLines = [];
-    const xTenths = Math.round((edit.x || 0) * 2.5);
-    const yTenths = Math.round((edit.y || 0) * 2.5);
-    newLines.push(`${indent}${varName}.style.absoluteX = ${xTenths}`);
-    newLines.push(`${indent}${varName}.style.absoluteY = ${yTenths}`);
-    
-    if (edit.scale && edit.scale !== 1.0) {
-      const scalePercent = Math.round(edit.scale * 100);
-      newLines.push(`${indent}${varName}.style.fontSize = '${scalePercent}%'`);
-    }
-    
-    lines.splice(insertIndex, 0, ...newLines);
-    setCodeEditorValue(lines.join('\n'));
-    console.log(`[Python Update TextExpression] ✅ "${textContent}"`);
-  }
-
-  // ====== ACTUALIZAR Lyric ======
-  function updateLyricInCode(elementId, textContent, edit, codeEditor) {
-    let code = getCodeEditorValue();
-    const lines = code.split('\n');
-    
-    // Extraer texto original del ID (formato "X-Y")
-    const match = elementId.match(/^([^-]+)-/);
-    const originalText = match ? match[1] : textContent;
-    
-    console.log(`[Python Update Lyric] ID: "${elementId}", Original: "${originalText}", Actual: "${textContent}"`);
-    console.log(`[Python Update Lyric] Edit:`, edit);
-    
-    // Buscar línea que contenga lyric="original" o textContent actual
-    let targetLineIndex = -1;
-    const searchTexts = [originalText];
-    if (edit.textContent && edit.textContent !== originalText) {
-      searchTexts.push(edit.textContent);
-    }
-    
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.trim().startsWith('#')) continue;
-      
-      for (const searchText of searchTexts) {
-        if (line.includes(`lyric="${searchText}"`) || line.includes(`lyric='${searchText}'`)) {
-          targetLineIndex = i;
-          console.log(`[Python Update Lyric] Encontrado en línea ${i}: "${line.trim()}"`);
-          break;
-        }
-      }
-      if (targetLineIndex !== -1) break;
-    }
-    
-    if (targetLineIndex === -1) {
-      console.warn(`[Python Update Lyric] ❌ No encontrado: "${originalText}" ni "${edit.textContent}"`);
-      return;
-    }
-    
-    let modified = false;
-    
-    // 1. Actualizar texto si cambió
-    if (edit.textContent && edit.textContent !== originalText) {
-      lines[targetLineIndex] = lines[targetLineIndex].replace(`lyric="${originalText}"`, `lyric="${edit.textContent}"`);
-      lines[targetLineIndex] = lines[targetLineIndex].replace(`lyric='${originalText}'`, `lyric='${edit.textContent}'`);
-      modified = true;
-      console.log(`[Python Update Lyric] Texto actualizado: "${originalText}" → "${edit.textContent}"`);
-    }
-    
-    // 2. NUEVO: Actualizar escala si cambió
-    if (edit.scale && edit.scale !== 1.0) {
-      const scalePercent = Math.round(edit.scale * 100);
-      const line = lines[targetLineIndex];
-      
-      // Comprobar si ya tiene fontSize
-      if (line.includes('fontSize')) {
-        // Reemplazar valor existente
-        lines[targetLineIndex] = line.replace(/fontSize\s*=\s*['"]?\d+%?['"]?/, `fontSize="${scalePercent}%"`);
-      } else {
-        // Añadir fontSize antes del paréntesis de cierre
-        // Buscar el lyric="X" y añadir después
-        const lyricMatch = line.match(/(lyric\s*=\s*['"][^'"]*['"])/);
-        if (lyricMatch) {
-          lines[targetLineIndex] = line.replace(lyricMatch[1], `${lyricMatch[1]}, fontSize="${scalePercent}%"`);
-        }
-      }
-      modified = true;
-      console.log(`[Python Update Lyric] Escala actualizada: ${scalePercent}%`);
-    }
-    
-    if (modified) {
-      setCodeEditorValue(lines.join('\n'));
-      console.log(`[Python Update Lyric] ✅ Actualización completa`);
-    } else {
-      console.log(`[Python Update Lyric] ⚠️ Sin cambios detectados`);
-    }
   }
 
   // ====== ACTUALIZAR BORRADOS EN CÓDIGO PYTHON ======
@@ -1771,7 +2002,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 3. Limpiar duplicados
         removeDuplicateTexts();
         
-        // 3.5 NUEVO: Asignar IDs desde código Python actualizado
+        // ✅ CRÍTICO: Asignar IDs ANTES de aplicar textContent
         assignCorrectIDsFromCode(updatedCode);
         
         // 4. Re-inicializar edición
@@ -1788,27 +2019,80 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`[Responsividad] IDs en window.edits:`, Object.keys(window.edits || {}));
         console.log(`[Responsividad] IDs en DOM:`, Array.from(document.querySelectorAll('text')).map(t => t.id));
         
-        // Primero restaurar textContent para todos los elementos (excepto borrados)
+        // ✅ CRÍTICO: Aplicar textContent usando IDs ya asignados correctamente
         const deletions = typeof window.getDeletions === 'function' ? window.getDeletions() : new Set();
+        const oldIdToNewIdMap = {}; // Declarar variable
+        
         Object.keys(window.edits || {}).forEach(id => {
           // Ignorar elementos borrados
           if (deletions.has(id)) return;
           
-          const el = document.getElementById(id);
+          let el = document.getElementById(id);
           const edit = window.edits[id];
           
+          // Si el elemento NO se encuentra por ID actual
+          if (!el && edit.textContent) {
+            // Buscar por texto ORIGINAL usando el mapeo
+            // El ID guardado en edits corresponde al texto EDITADO
+            // Necesitamos encontrar qué texto ORIGINAL corresponde a este ID
+            
+            // Buscar en el mapeo inverso: necesitamos saber qué texto original tenía este ID
+            // Para eso, buscar en el código Python qué texto tiene este ID
+            const lines = updatedCode.split('\n');
+            let originalTextFromPython = null;
+            
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].includes(`.id = "${id}"`)) {
+                // Buscar hacia arriba la declaración
+                for (let j = i; j >= Math.max(0, i - 10); j--) {
+                  const match = lines[j].match(/["'](.+?)["']\)/);
+                  if (match) {
+                    originalTextFromPython = match[1];
+                    break;
+                  }
+                }
+                break;
+              }
+            }
+            
+            // Si encontramos el texto original, buscar el ID en el mapeo
+            if (originalTextFromPython && textToIdMap.has(originalTextFromPython)) {
+              const newId = textToIdMap.get(originalTextFromPython);
+              el = document.getElementById(newId);
+              
+              if (el) {
+                oldIdToNewIdMap[id] = newId;
+                console.log(`[ID Remapping] "${id}" → "${newId}" (texto original: "${originalTextFromPython}")`);
+              }
+            }
+          }
+          
+          // Aplicar textContent si existe
           if (el && edit.textContent && el.tagName === 'text') {
             el.textContent = edit.textContent;
-            console.log(`[Responsividad] ✅ Restaurando texto editado para "${id}": "${edit.textContent}"`);
+            console.log(`[Responsividad] ✅ Restaurando texto editado para "${el.id}": "${edit.textContent}"`);
           }
         });
         
-        // Luego actualizar código Python con todos los textos editados
+        // ✅ Actualizar window.edits con los IDs remapeados
+        Object.keys(oldIdToNewIdMap).forEach(oldId => {
+          const newId = oldIdToNewIdMap[oldId];
+          window.edits[newId] = window.edits[oldId];
+          delete window.edits[oldId];
+          console.log(`[window.edits] Actualizado: "${oldId}" → "${newId}"`);
+        });
+        
+        // Luego actualizar código Python con TODAS las ediciones (posición, escala, texto)
         Object.keys(window.edits || {}).forEach(id => {
           const el = document.getElementById(id);
-          if (el && window.edits[id].textContent && el.tagName === 'text') {
-            if (typeof window.updatePythonCode === 'function') {
-              window.updatePythonCode(el);
+          if (el && el.tagName === 'text') {
+            // Actualizar si hay CUALQUIER edición (posición, escala o texto)
+            const edit = window.edits[id];
+            if (edit && (edit.x !== 0 || edit.y !== 0 || edit.scale !== 1.0 || edit.textContent)) {
+              if (typeof window.updatePythonCode === 'function') {
+                window.updatePythonCode(el);
+                console.log(`[Responsividad] ✅ Actualizando Python para "${el.textContent.trim()}" (x:${edit.x}, y:${edit.y}, scale:${edit.scale})`);
+              }
             }
           }
         });

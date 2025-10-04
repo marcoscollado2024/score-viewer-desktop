@@ -22,6 +22,59 @@ let selectionBox = null;
 let multiSelectionBox = null; // Rectángulo que engloba todos los seleccionados
 let justCompletedSelection = false; // Flag para prevenir limpieza inmediata
 
+// ====== FUNCIONES DE RESALTADO DE CÓDIGO (DEFINIDAS PRIMERO) ======
+function highlightCodeLine(lineNumber, isEditing = false) {
+    const codeEditor = document.getElementById('code-editor');
+    if (!codeEditor) {
+        console.warn('[Highlight] Editor no encontrado');
+        return;
+    }
+    
+    // Si usa CodeMirror
+    if (window.codeMirrorEditor) {
+        // ✅ CRÍTICO: Limpiar TODOS los resaltados anteriores (highlighted-line Y editing)
+        for (let i = 0; i < window.codeMirrorEditor.lineCount(); i++) {
+            window.codeMirrorEditor.removeLineClass(i, 'background', 'highlighted-line');
+            window.codeMirrorEditor.removeLineClass(i, 'background', 'editing');
+        }
+        
+        // Añadir clase highlighted-line
+        window.codeMirrorEditor.addLineClass(lineNumber, 'background', 'highlighted-line');
+        
+        // ✅ NUEVO: Añadir clase .editing si está en modo edición
+        if (isEditing) {
+            window.codeMirrorEditor.addLineClass(lineNumber, 'background', 'editing');
+            console.log(`[Highlight] Línea ${lineNumber} resaltada en modo EDITING`);
+        } else {
+            console.log(`[Highlight] Línea ${lineNumber} resaltada normal`);
+        }
+        
+        // ✅ SCROLL CENTRADO MEJORADO: Usar función dedicada
+        scrollCodeToLine(lineNumber);
+        
+        return;
+    }
+    
+    // Fallback: textarea nativo
+    const lines = codeEditor.value.split('\n');
+    const start = lines.slice(0, lineNumber).join('\n').length;
+    const end = start + lines[lineNumber].length;
+    
+    codeEditor.focus();
+    codeEditor.setSelectionRange(start, end);
+    codeEditor.scrollTop = lineNumber * 20;
+}
+
+function clearCodeHighlight() {
+    if (window.codeMirrorEditor) {
+        // Limpiar todas las líneas resaltadas
+        for (let i = 0; i < window.codeMirrorEditor.lineCount(); i++) {
+            window.codeMirrorEditor.removeLineClass(i, 'background', 'highlighted-line');
+            window.codeMirrorEditor.removeLineClass(i, 'background', 'editing');
+        }
+    }
+}
+
 // --- Conversión px ↔ tenths ---
 // En MusicXML, las posiciones se miden en "tenths" (1/10 de espacio entre líneas del pentagrama)
 // Factor aproximado: ajustar según escala de OSMD
@@ -129,14 +182,15 @@ function initEditing() {
     // Hacer textos, SVG principal Y staff-only seleccionables
     const elementsToInit = document.querySelectorAll('#osmd-container text, #sheet-music-svg, #staff-only');
     elementsToInit.forEach(el => {
-        // SOLO asignar ID si NO existe (RESPETAR IDs de assignCorrectIDsFromCode)
+        // ✅ CRÍTICO: RESPETAR IDs asignados por assignCorrectIDsFromCode
+        // Solo asignar ID fallback si realmente NO tiene ID
         if (!el.id || el.id.trim() === '') {
             const textContent = el.textContent.trim();
-            const count = (document.querySelectorAll(`[id^="${textContent}"]`).length);
-            el.id = `${textContent.replace(/\s+/g, '-')}-${count}`;
-            console.log(`[initEditing] ID auto-asignado (fallback): "${el.id}"`);
+            const timestamp = Date.now();
+            el.id = `fallback_${textContent.replace(/\s+/g, '-')}_${timestamp}`;
+            console.log(`[initEditing] ⚠️ ID fallback asignado (elemento no vinculado): "${el.id}"`);
         } else {
-            console.log(`[initEditing] ID existente respetado: "${el.id}"`);
+            console.log(`[initEditing] ✅ ID estable preservado: "${el.id}"`);
         }
         
         // Establecer el origen de la transformación para un escalado centrado
@@ -164,8 +218,19 @@ function initEditing() {
             return;
         }
         
+        // ✅ CRÍTICO: Ignorar clicks DENTRO del textarea de edición o input
+        const activeTextarea = document.querySelector('#score-output textarea');
+        const activeInput = document.querySelector('#score-output input[type="text"]');
+        
+        if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || activeTextarea || activeInput) {
+            console.log('[Click] Ignorado: dentro de textarea/input (mantener resaltado)');
+            return;
+        }
+        
         // ✅ Permitir clicks en elementos, paletas y bounding box sin deseleccionar
         if (e.target.closest('#osmd-container text, #sheet-music-svg, #edit-palette, #multi-select-palette, .multi-selection-box')) return;
+        
+        // ✅ CRÍTICO: Llamar a deselectAll directamente (sin override)
         deselectAll();
     });
 
@@ -226,6 +291,15 @@ function selectElement(el) {
     selectedElement = el;
     el.classList.add('selected');
     showEditPalette(el);
+    
+    // ✅ SISTEMA SIMPLE: Resaltar usando data-codeLine
+    if (el.dataset && el.dataset.codeLine !== undefined) {
+        const lineNumber = parseInt(el.dataset.codeLine);
+        highlightCodeLine(lineNumber);
+        console.log(`[Select] ✅ Resaltado línea ${lineNumber} para "${el.textContent?.trim()}"`);
+    } else {
+        console.log(`[Select] Elemento sin data-codeLine (manual o sin vincular)`);
+    }
 }
 
 function deselectAll() {
@@ -234,6 +308,20 @@ function deselectAll() {
     clearMultipleSelection();
     hideEditPalette();
     hideMultipleSelectionPalette();
+    
+    // ✅ CRÍTICO: NO limpiar resaltado si hay un textarea O input activo
+    const activeTextarea = document.querySelector('#score-output textarea');
+    const activeInput = document.querySelector('#score-output input[type="text"]');
+    
+    if (!activeTextarea && !activeInput) {
+        // Solo limpiar si NO hay textarea ni input activo
+        if (typeof clearCodeHighlight === 'function') {
+            clearCodeHighlight();
+            console.log('[Deselect] Resaltado de código limpiado');
+        }
+    } else {
+        console.log('[Deselect] Resaltado MANTENIDO (textarea/input activo)');
+    }
     
     // Restaurar cursor al deseleccionar
     document.body.style.cursor = '';
@@ -346,57 +434,199 @@ function editTextInPlace(existingElement, points) {
 
     editor.focus();
     editor.select();
-
-    const finishEditing = () => {
-        const newTextContent = editor.value; // Keep whitespace
+    
+    // ✅ NUEVO: Obtener línea de código para actualización en tiempo real
+    const codeLine = existingElement ? parseInt(existingElement.dataset.codeLine) : null;
+    
+    // ✅ NUEVO: Resaltar línea con clase .editing (más oscuro)
+    if (codeLine !== null && !isNaN(codeLine)) {
+        highlightCodeLine(codeLine, true); // true = modo editing
+        console.log(`[Live Edit] Resaltando línea ${codeLine} en modo editing`);
+    }
+    
+    // ✅ NUEVO: Actualización en tiempo real mientras escribe + VALIDACIÓN
+    editor.addEventListener('input', async () => {
+        const newText = editor.value;
         
+        // ✅ VALIDACIÓN EN VIVO: Verificar si el texto es válido
+        let isValid = true;
+        let validationError = null;
+        
+        if (existingElement && codeLine !== null && newText.trim()) {
+            // Detectar tipo de elemento
+            const elementType = detectElementTypeFromLine(codeLine);
+            
+            if (elementType === 'ChordSymbol') {
+                const result = await validateChord(newText.trim());
+                isValid = result;
+                if (!result) {
+                    validationError = 'Acorde inválido';
+                }
+            } else if (elementType === 'Note') {
+                const result = await validateNote(newText.trim());
+                isValid = result;
+                if (!result) {
+                    validationError = 'Nota inválida';
+                }
+            }
+            // Lyrics y textos siempre son válidos
+        }
+        
+        // Indicar visualmente si es inválido
+        if (!isValid && newText.trim()) {
+            editor.style.borderColor = '#ff0000';
+            editor.style.background = '#ffe6e6';
+            editor.title = validationError || 'Entrada inválida';
+            console.log(`[Live Edit] ⚠️ ${validationError}: "${newText.trim()}"`);
+            // NO actualizar código ni visual si es inválido
+            return;
+        } else {
+            editor.style.borderColor = 'var(--primary)';
+            editor.style.background = '#fff';
+            editor.title = '';
+        }
+        
+        // Actualizar elemento visual inmediatamente solo si es válido
         if (existingElement) {
-            existingElement.innerHTML = ''; // Clear existing content
-            const lines = newTextContent.split('\n');
+            existingElement.innerHTML = '';
+            const lines = newText.split('\n');
             lines.forEach((line, index) => {
                 const tspan = createSVGElement('tspan', {
                     x: existingElement.getAttribute('x'),
                     dy: index === 0 ? '0' : '1.2em',
-                    textContent: line || ' ' // Use a space for empty lines to maintain height
+                    textContent: line || ' '
                 });
                 existingElement.appendChild(tspan);
             });
-
-            existingElement.style.visibility = 'visible';
-            
-            const id = existingElement.id;
-            if (!edits[id]) edits[id] = { x: 0, y: 0, scale: 1.0 };
-            edits[id].textContent = newTextContent; // Store raw multiline text
-            saveState();
-            
-            // NUEVO: Actualizar código Python
-            if (typeof window.updatePythonCode === 'function') {
-                window.updatePythonCode(existingElement);
-            }
-
-        } else if (newTextContent.trim()) {
-            const newText = createSVGElement('text', {
-                x: pos.x, y: pos.y,
-                fill: 'var(--text)', 'font-size': `${fontSize}px`, 'font-family': fontFamily,
-                'data-type': 'text',
-                'dominant-baseline': 'hanging'
-            });
-
-            const lines = newTextContent.split('\n');
-            lines.forEach((line, index) => {
-                const tspan = createSVGElement('tspan', {
-                    x: pos.x,
-                    dy: index === 0 ? '0' : '1.2em',
-                    textContent: line || ' '
-                });
-                newText.appendChild(tspan);
-            });
-            finalizeNewElement(newText);
         }
         
-        scoreContainer.removeChild(editor);
-        editor.removeEventListener('blur', finishEditing);
-        editor.removeEventListener('keydown', handleKeydown);
+        // ✅ Actualizar código Python EN VIVO solo si es válido
+        if (codeLine !== null && !isNaN(codeLine) && isValid) {
+            updateCodeLineDirectly(codeLine, newText);
+        }
+    });
+
+    const finishEditing = async () => {
+        try {
+            const newTextContent = editor.value; // Keep whitespace
+            
+            // ✅ VALIDACIÓN FINAL antes de guardar
+            if (existingElement && codeLine !== null && newTextContent.trim()) {
+                const elementType = detectElementTypeFromLine(codeLine);
+                let isValid = true;
+                
+                if (elementType === 'ChordSymbol') {
+                    isValid = await validateChord(newTextContent.trim());
+                    if (!isValid) {
+                        alert(`❌ Acorde inválido: "${newTextContent.trim()}"\n\nNo se guardará el cambio.`);
+                        // Restaurar valor original
+                        if (originalTexts.hasOwnProperty(existingElement.id)) {
+                            existingElement.innerHTML = '';
+                            const lines = originalTexts[existingElement.id].split('\n');
+                            lines.forEach((line, index) => {
+                                const tspan = createSVGElement('tspan', {
+                                    x: existingElement.getAttribute('x'),
+                                    dy: index === 0 ? '0' : '1.2em',
+                                    textContent: line || ' '
+                                });
+                                existingElement.appendChild(tspan);
+                            });
+                        }
+                        existingElement.style.visibility = 'visible';
+                        return; // NO guardar
+                    }
+                } else if (elementType === 'Note') {
+                    isValid = await validateNote(newTextContent.trim());
+                    if (!isValid) {
+                        alert(`❌ Nota inválida: "${newTextContent.trim()}"\n\nNo se guardará el cambio.`);
+                        // Restaurar valor original
+                        if (originalTexts.hasOwnProperty(existingElement.id)) {
+                            existingElement.innerHTML = '';
+                            const lines = originalTexts[existingElement.id].split('\n');
+                            lines.forEach((line, index) => {
+                                const tspan = createSVGElement('tspan', {
+                                    x: existingElement.getAttribute('x'),
+                                    dy: index === 0 ? '0' : '1.2em',
+                                    textContent: line || ' '
+                                });
+                                existingElement.appendChild(tspan);
+                            });
+                        }
+                        existingElement.style.visibility = 'visible';
+                        return; // NO guardar
+                    }
+                }
+            }
+            
+            if (existingElement) {
+                existingElement.innerHTML = ''; // Clear existing content
+                const lines = newTextContent.split('\n');
+                lines.forEach((line, index) => {
+                    const tspan = createSVGElement('tspan', {
+                        x: existingElement.getAttribute('x'),
+                        dy: index === 0 ? '0' : '1.2em',
+                        textContent: line || ' ' // Use a space for empty lines to maintain height
+                    });
+                    existingElement.appendChild(tspan);
+                });
+
+                existingElement.style.visibility = 'visible';
+                
+                const id = existingElement.id;
+                if (!edits[id]) edits[id] = { x: 0, y: 0, scale: 1.0 };
+                edits[id].textContent = newTextContent; // Store raw multiline text
+                
+                // ✅ CRÍTICO: Actualizar código Python SIEMPRE al editar texto
+                console.log('[Edit Text] Llamando a updatePythonCode para:', id);
+                if (typeof window.updatePythonCode === 'function') {
+                    window.updatePythonCode(existingElement);
+                } else {
+                    console.error('[Edit Text] updatePythonCode NO disponible');
+                }
+                
+                saveState();
+
+            } else if (newTextContent.trim()) {
+                const newText = createSVGElement('text', {
+                    x: pos.x, y: pos.y,
+                    fill: 'var(--text)', 'font-size': `${fontSize}px`, 'font-family': fontFamily,
+                    'data-type': 'text',
+                    'dominant-baseline': 'hanging'
+                });
+
+                const lines = newTextContent.split('\n');
+                lines.forEach((line, index) => {
+                    const tspan = createSVGElement('tspan', {
+                        x: pos.x,
+                        dy: index === 0 ? '0' : '1.2em',
+                        textContent: line || ' '
+                    });
+                    newText.appendChild(tspan);
+                });
+                finalizeNewElement(newText);
+            }
+        } catch (error) {
+            console.error('[Edit Text] Error al procesar:', error);
+        } finally {
+            // ✅ CRÍTICO: SIEMPRE limpiar el editor Y el resaltado
+            try {
+                if (editor && editor.parentNode) {
+                    scoreContainer.removeChild(editor);
+                }
+                editor.removeEventListener('blur', finishEditing);
+                editor.removeEventListener('keydown', handleKeydown);
+                
+                // ✅ NUEVO: Limpiar resaltado oscuro al cerrar editor
+                if (codeLine !== null && !isNaN(codeLine) && window.codeMirrorEditor) {
+                    window.codeMirrorEditor.removeLineClass(codeLine, 'background', 'highlighted-line');
+                    window.codeMirrorEditor.removeLineClass(codeLine, 'background', 'editing');
+                }
+                
+                console.log('[Edit Text] ✅ Editor y resaltado limpiados correctamente');
+            } catch (cleanupError) {
+                console.error('[Edit Text] Error limpiando editor:', cleanupError);
+            }
+        }
     };
 
     const handleKeydown = (e) => {
@@ -508,72 +738,63 @@ function finalizeNewElement(el) {
 
 // ====== GENERAR E INSERTAR CÓDIGO PYTHON PARA ELEMENTOS NUEVOS ======
 function insertPythonCodeForNewElement(el) {
-    if (!window.codeMirrorEditor && !document.getElementById('code-editor')) return;
-    
     const id = el.id;
     const textContent = el.textContent.trim();
-    const dataType = el.getAttribute('data-type') || 'text';
+    const type = el.getAttribute('data-type') || 'text';
+    const fontSize = el.getAttribute('font-size') || '20';
+    const placement = type === 'symbol' ? 'above' : 'below';
     
-    // Determinar si es símbolo o texto normal
-    const isSymbol = dataType === 'symbol' || el.classList.contains('symbol');
-    
-    // Generar variable name segura
-    const varName = textContent
-        .replace(/\s+/g, '_')
-        .replace(/[^\w]/g, '')
-        .toLowerCase();
-    const safeVarName = `${varName}_${Date.now() % 10000}`;
-    
-    // Generar código Python
-    let pythonCode = '\n# Elemento añadido manualmente\n';
-    
-    if (isSymbol) {
-        pythonCode += `${safeVarName} = expressions.TextExpression("${textContent}")\n`;
-    } else {
-        pythonCode += `${safeVarName} = expressions.TextExpression("${textContent}")\n`;
-    }
-    
-    // Determinar placement basándose en posición Y
-    const y = parseFloat(el.getAttribute('y'));
-    const placement = y < 200 ? 'above' : 'below';
-    pythonCode += `${safeVarName}.placement = '${placement}'\n`;
-    pythonCode += `${safeVarName}.id = "${id}"\n`;
-    
-    // Posición (si no es 0,0)
-    const edit = edits[id];
-    if (edit && (edit.x !== 0 || edit.y !== 0)) {
-        const xTenths = Math.round((edit.x || 0) * 2.5);
-        const yTenths = Math.round((edit.y || 0) * 2.5);
-        if (xTenths !== 0) pythonCode += `${safeVarName}.style.absoluteX = ${xTenths}\n`;
-        if (yTenths !== 0) pythonCode += `${safeVarName}.style.absoluteY = ${yTenths}\n`;
-    }
-    
-    // Insertar en el primer compás (offset 0.0)
-    pythonCode += `m.insert(0.0, ${safeVarName})\n`;
+    console.log(`[Python Insert] Generando código para elemento manual: "${textContent}" (ID: ${id})`);
     
     // Obtener código actual
-    const currentCode = window.codeMirrorEditor 
-        ? window.codeMirrorEditor.getValue() 
-        : document.getElementById('code-editor').value;
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
     
-    // Insertar al final (antes de "score = s" si existe)
-    let newCode;
-    if (currentCode.includes('score = s')) {
-        newCode = currentCode.replace(/score = s/, pythonCode + '\nscore = s');
-    } else if (currentCode.includes('score = ')) {
-        newCode = currentCode.replace(/(score = [^\n]+)/, pythonCode + '\n$1');
-    } else {
-        newCode = currentCode + pythonCode;
+    // ✅ OPCIÓN B: Insertar AL FINAL del código como overlay independiente
+    // Buscar última línea no vacía
+    let insertLine = lines.length;
+    for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].trim()) {
+            insertLine = i + 1;
+            break;
+        }
     }
+    
+    // Generar código Python para elemento overlay
+    const varName = `overlay_${id.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    
+    // Calcular posición absoluta desde transform actual
+    const edit = edits[id] || { x: 0, y: 0 };
+    const xPos = parseFloat(el.getAttribute('x')) + (edit.x || 0);
+    const yPos = parseFloat(el.getAttribute('y')) + (edit.y || 0);
+    
+    const pythonCode = [
+        ``,
+        `# ═══ Elemento Manual Overlay ═══`,
+        `${varName} = expressions.TextExpression("${textContent}")`,
+        `${varName}.id = "${id}"`,
+        `${varName}.placement = '${placement}'`,
+        `${varName}.style.absoluteX = ${xPos}  # Posición X absoluta`,
+        `${varName}.style.absoluteY = ${yPos}  # Posición Y absoluta`,
+        `# Añadir a la última parte (overlay independiente)`,
+        `if hasattr(score, 'parts') and len(score.parts) > 0:`,
+        `    score.parts[-1].insert(0, ${varName})`
+    ];
+    
+    // Insertar al final
+    lines.splice(insertLine, 0, ...pythonCode);
     
     // Actualizar editor
-    if (window.codeMirrorEditor) {
-        window.codeMirrorEditor.setValue(newCode);
-    } else {
-        document.getElementById('code-editor').value = newCode;
-    }
+    window.setCodeEditorValue(lines.join('\n'));
     
-    console.log(`[Python Insert] Código generado para "${textContent}" (ID: ${id})`);
+    console.log(`[Python Insert] ✅ Código overlay insertado al final para "${textContent}"`);
+    console.log(`[Python Insert] Variable: ${varName}, Posición: (${xPos}, ${yPos})`);
+    
+    // Asignar data-codeLine al elemento para vinculación
+    const newLineNumber = insertLine + 2; // Línea de TextExpression
+    el.dataset.codeLine = newLineNumber;
+    
+    console.log(`[Python Insert] ✅ Elemento vinculado a línea ${newLineNumber}`);
 }
 
 // --- Manipulación de Elementos ---
@@ -853,6 +1074,12 @@ function updateScale(factor) {
     if (selectedElement.tagName === 'text' && typeof window.updatePythonCode === 'function') {
         window.updatePythonCode(selectedElement);
     }
+    
+    // ✅ FIX: Mantener resaltado al escalar
+    if (selectedElement.dataset && selectedElement.dataset.codeLine !== undefined) {
+        const lineNumber = parseInt(selectedElement.dataset.codeLine);
+        highlightCodeLine(lineNumber, false);
+    }
 }
 
 function applyFont(fontFamily) {
@@ -948,25 +1175,24 @@ function dragMoveListener(event) {
 
 function handleDragEnd(event) {
     saveState();
-    saveToLocalStorage(); // Guardar automáticamente tras cada movimiento
+    saveToLocalStorage();
     
-    // NUEVO: Actualizar código Python si es un texto OSMD
-    // Usar event.target en lugar de selectedElement
+    // ✅ UNIVERSAL: Actualizar Python para CUALQUIER texto movido
     const target = event ? event.target : selectedElement;
     
-    console.log('[handleDragEnd] target:', target);
-    console.log('[handleDragEnd] tagName:', target ? target.tagName : 'null');
-    console.log('[handleDragEnd] updatePythonCode existe?', typeof window.updatePythonCode);
+    if (target && target.tagName === 'text' && typeof window.updatePythonCode === 'function') {
+        window.updatePythonCode(target);
+        console.log(`[handleDragEnd] ✅ Python actualizado para "${target.textContent.trim()}"`);
+    }
     
-    if (target && target.tagName === 'text') {
-        console.log('[handleDragEnd] ✅ Llamando a updatePythonCode()');
-        if (typeof window.updatePythonCode === 'function') {
-            window.updatePythonCode(target);
-        } else {
-            console.error('[handleDragEnd] ❌ updatePythonCode no es una función');
-        }
-    } else {
-        console.warn('[handleDragEnd] ❌ NO es un texto o target es null');
+    // Si hay multi-selección, actualizar Python para TODOS
+    if (selectedElements.size > 0) {
+        selectedElements.forEach(el => {
+            if (el.tagName === 'text' && typeof window.updatePythonCode === 'function') {
+                window.updatePythonCode(el);
+                console.log(`[handleDragEnd Multi] ✅ Python actualizado para "${el.textContent.trim()}"`);
+            }
+        });
     }
 }
 
@@ -1148,10 +1374,8 @@ function createSVGElement(tag, attributes) {
 
 // ====== EXPORTACIÓN XML CON EDICIONES ======
 document.getElementById('save-btn')?.addEventListener('click', async () => {
-  const codeEditor = document.getElementById('code-editor');
-  if (!codeEditor) return;
-  
-  const code = codeEditor.value;
+  // ✅ CRÍTICO: Usar código actualizado del editor (con símbolos manuales)
+  const code = window.getCodeEditorValue();
   
   if (!code.trim()) {
     alert('No hay código para exportar');
@@ -1160,6 +1384,7 @@ document.getElementById('save-btn')?.addEventListener('click', async () => {
   
   try {
     console.log('[Export XML] Intentando usar API nativa...');
+    console.log(`[Export XML] Código a exportar: ${code.length} caracteres`);
     
     // Esperar a que pywebview se inicialice (importante en app empaquetada)
     let attempts = 0;
@@ -1263,8 +1488,9 @@ document.getElementById('export-image-select')?.addEventListener('change', (e) =
 
 // ====== SELECTOR DE COLOR PARA NOTAS ======
 let selectedNoteElement = null;
+let noteColors = {}; // Almacenar colores de notas: { "lyric_id": "color" }
 
-// Hacer notas clicables para aplicar color
+// Hacer notas clicables para aplicar color Y editar pitch
 function makeNotesClickable() {
   const svg = document.querySelector('#osmd-container svg');
   if (!svg) return;
@@ -1275,6 +1501,7 @@ function makeNotesClickable() {
   noteHeads.forEach(noteHead => {
     noteHead.style.cursor = 'pointer';
     
+    // ✅ CLICK SIMPLE: Seleccionar para cambiar color Y resaltar código
     noteHead.addEventListener('click', (e) => {
       e.stopPropagation();
       
@@ -1287,11 +1514,446 @@ function makeNotesClickable() {
       selectedNoteElement = noteHead;
       selectedNoteElement.style.outline = '2px solid #0066ff';
       
+      // ✅ CRÍTICO: Buscar lyric más cercano para obtener línea de código
+      const closestLyric = findClosestLyricToNote(noteHead);
+      if (closestLyric && closestLyric.dataset && closestLyric.dataset.codeLine !== undefined) {
+        const lyricLine = parseInt(closestLyric.dataset.codeLine);
+        
+        // Buscar hacia ARRIBA la línea note.Note
+        const code = window.getCodeEditorValue();
+        const lines = code.split('\n');
+        
+        for (let i = lyricLine; i >= Math.max(0, lyricLine - 5); i--) {
+          if (lines[i].includes('note.Note(')) {
+            if (typeof highlightCodeLine === 'function') {
+              highlightCodeLine(i, false);
+              console.log(`[Note Click] ✅ Resaltada línea ${i} para nota (desde lyric línea ${lyricLine})`);
+            }
+            break;
+          }
+        }
+      } else {
+        console.log('[Note Click] ⚠️ No se encontró lyric cercano para resaltar');
+      }
+      
       console.log('[Color] Nota seleccionada');
+    });
+    
+    // ✅ DOBLE CLICK: Editar pitch de la nota
+    noteHead.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      
+      // Buscar el lyric más cercano para inferir la nota actual
+      const currentPitch = inferNotePitchFromPosition(noteHead);
+      
+      showNoteEditInput(noteHead, currentPitch);
+      console.log('[Note Edit] Iniciando edición de nota');
     });
   });
   
-  console.log(`[Color] ${noteHeads.length} nota(s) ahora clicables para aplicar color`);
+  console.log(`[Color] ${noteHeads.length} nota(s) ahora clicables (click = color, doble click = editar)`);
+}
+
+// ✅ MEJORADO: Buscar la línea de note.Note asociada al lyric
+function inferNotePitchFromPosition(noteHead) {
+  try {
+    // Buscar el lyric más cercano
+    const closestLyric = findClosestLyricToNote(noteHead);
+    
+    if (closestLyric && closestLyric.dataset && closestLyric.dataset.codeLine !== undefined) {
+      const lyricLine = parseInt(closestLyric.dataset.codeLine);
+      const code = window.getCodeEditorValue();
+      const lines = code.split('\n');
+      
+      // Buscar hacia ARRIBA desde el lyric la línea note.Note
+      for (let i = lyricLine; i >= Math.max(0, lyricLine - 5); i--) {
+        const line = lines[i];
+        
+        // Extraer pitch: note.Note("D4", ...)
+        const match = line.match(/note\.Note\s*\(\s*["']([A-G][#b]?-?\d+)["']/);
+        if (match) {
+          const pitch = match[1];
+          console.log(`[Note Inference] ✅ Pitch encontrado en línea ${i}: ${pitch}`);
+          
+          // ✅ GUARDAR línea para actualización posterior
+          noteHead.dataset.noteCodeLine = i;
+          
+          return pitch;
+        }
+      }
+    }
+    
+    console.warn(`[Note Inference] ⚠️ No se pudo detectar pitch`);
+  } catch (e) {
+    console.error('[Note Inference] ❌ Error:', e);
+  }
+  
+  return 'C5'; // Fallback
+}
+
+// ✅ NUEVO: Detectar número de compás usando barlines
+function detectMeasureNumber(noteHead) {
+    const svg = document.querySelector('#osmd-container svg');
+    if (!svg) return 1;
+    
+    try {
+        const noteRect = noteHead.getBoundingClientRect();
+        const noteX = noteRect.left + noteRect.width / 2;
+        
+        // Buscar todas las barlines (líneas verticales que marcan compases)
+        const barlines = Array.from(svg.querySelectorAll('path')).filter(path => {
+            const d = path.getAttribute('d') || '';
+            // Barlines típicamente son paths verticales: "M x y1 L x y2"
+            return /^M\s*[\d.]+\s+[\d.]+\s+L\s*[\d.]+\s+[\d.]+$/.test(d);
+        });
+        
+        // Ordenar barlines por posición X
+        barlines.sort((a, b) => {
+            const aX = a.getBoundingClientRect().left;
+            const bX = b.getBoundingClientRect().left;
+            return aX - bX;
+        });
+        
+        // Contar cuántas barlines hay a la IZQUIERDA de la nota
+        let measureNumber = 1; // Primer compás = 1
+        for (const barline of barlines) {
+            const barlineX = barline.getBoundingClientRect().left;
+            if (barlineX < noteX) {
+                measureNumber++;
+            } else {
+                break;
+            }
+        }
+        
+        console.log(`[Measure Detection] Nota en compás ${measureNumber} (barlines a la izquierda: ${measureNumber - 1})`);
+        return measureNumber;
+        
+    } catch (e) {
+        console.error('[Measure Detection] Error:', e);
+        return 1;
+    }
+}
+
+// ✅ NUEVO: Contar posición de nota dentro del compás
+function countNotePositionInMeasure(noteHead, measureNumber) {
+    const svg = document.querySelector('#osmd-container svg');
+    if (!svg) return 1;
+    
+    try {
+        const noteRect = noteHead.getBoundingClientRect();
+        const noteX = noteRect.left + noteRect.width / 2;
+        
+        // Buscar todas las notas (ellipses) en el compás
+        const allNotes = Array.from(svg.querySelectorAll('ellipse, path[d*="M"]'));
+        
+        // Detectar límites del compás usando barlines
+        const barlines = Array.from(svg.querySelectorAll('path')).filter(path => {
+            const d = path.getAttribute('d') || '';
+            return /^M\s*[\d.]+\s+[\d.]+\s+L\s*[\d.]+\s+[\d.]+$/.test(d);
+        }).sort((a, b) => {
+            return a.getBoundingClientRect().left - b.getBoundingClientRect().left;
+        });
+        
+        // Límites X del compás actual
+        const measureStartX = measureNumber > 1 ? barlines[measureNumber - 2].getBoundingClientRect().left : 0;
+        const measureEndX = measureNumber <= barlines.length ? barlines[measureNumber - 1].getBoundingClientRect().left : Infinity;
+        
+        // Filtrar notas dentro del compás y ordenar por X
+        const notesInMeasure = allNotes.filter(note => {
+            const noteX = note.getBoundingClientRect().left;
+            return noteX >= measureStartX && noteX < measureEndX;
+        }).sort((a, b) => {
+            return a.getBoundingClientRect().left - b.getBoundingClientRect().left;
+        });
+        
+        // Encontrar posición de nuestra nota
+        const position = notesInMeasure.indexOf(noteHead) + 1;
+        
+        console.log(`[Note Position] Nota en posición ${position} de ${notesInMeasure.length} en compás ${measureNumber}`);
+        return position || 1;
+        
+    } catch (e) {
+        console.error('[Note Position] Error:', e);
+        return 1;
+    }
+}
+
+// ✅ NUEVO: Mostrar input para editar nota
+function showNoteEditInput(noteHead, currentPitch) {
+  const scoreContainer = document.querySelector('#score-output');
+  if (!scoreContainer) return;
+  
+  // Crear input si no existe
+  if (!liveEditInput) {
+    liveEditInput = document.createElement('input');
+    liveEditInput.type = 'text';
+    liveEditInput.style.cssText = `
+      position: absolute;
+      background: #fff;
+      color: #000;
+      border: 2px solid #667eea;
+      font-size: 18px;
+      padding: 8px 12px;
+      z-index: 3000;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      font-family: monospace;
+      width: 80px;
+      text-align: center;
+    `;
+    scoreContainer.appendChild(liveEditInput);
+  }
+  
+  // Posicionar sobre la nota
+  const noteRect = noteHead.getBoundingClientRect();
+  const containerRect = scoreContainer.getBoundingClientRect();
+  liveEditInput.style.left = `${noteRect.left - containerRect.left - 20}px`;
+  liveEditInput.style.top = `${noteRect.top - containerRect.top - 40}px`;
+  
+  // Valor inicial
+  liveEditInput.value = currentPitch;
+  liveEditInput.style.display = 'block';
+  liveEditInput.focus();
+  liveEditInput.select();
+  
+  // Guardar referencia a la nota
+  liveEditInput.noteHead = noteHead;
+  liveEditInput.originalPitch = currentPitch;
+  
+  // Listeners
+  liveEditInput.oninput = () => handleNoteEdit(noteHead, currentPitch);
+  liveEditInput.onblur = () => finishNoteEdit(noteHead, currentPitch);
+  liveEditInput.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      liveEditInput.blur();
+    } else if (e.key === 'Escape') {
+      liveEditInput.value = currentPitch;
+      liveEditInput.blur();
+    }
+  };
+}
+
+// ✅ MEJORADO: Actualizar código Python EN TIEMPO REAL mientras escribe
+async function handleNoteEdit(noteHead, originalPitch) {
+  const newPitch = liveEditInput.value.trim();
+  
+  // Validar formato de nota (ej: C4, G#5, Db3)
+  const valid = /^[A-G][#b]?\d+$/.test(newPitch);
+  
+  if (!valid && newPitch !== '') {
+    liveEditInput.style.borderColor = '#ff0000';
+    liveEditInput.style.background = '#ffe6e6';
+    return;
+  }
+  
+  // Válido → Resetear estilos
+  liveEditInput.style.borderColor = '#667eea';
+  liveEditInput.style.background = '#fff';
+  
+  // ✅ ACTUALIZAR CÓDIGO PYTHON EN TIEMPO REAL
+  if (newPitch && noteHead.dataset.noteCodeLine) {
+    const lineNumber = parseInt(noteHead.dataset.noteCodeLine);
+    updateNotePitchInCode(lineNumber, newPitch);
+  }
+}
+
+// ✅ NUEVO: Actualizar pitch en el código
+function updateNotePitchInCode(lineNumber, newPitch) {
+  const code = window.getCodeEditorValue();
+  const lines = code.split('\n');
+  
+  if (lineNumber >= 0 && lineNumber < lines.length) {
+    // Reemplazar pitch: note.Note("D4", ...) → note.Note("E5", ...)
+    lines[lineNumber] = lines[lineNumber].replace(
+      /note\.Note\s*\(\s*["']([A-G][#b]?-?\d+)["']/,
+      `note.Note("${newPitch}"`
+    );
+    
+    window.setCodeEditorValue(lines.join('\n'));
+    console.log(`[Note Edit] ✅ Código actualizado en línea ${lineNumber}: ${newPitch}`);
+  }
+}
+
+// ✅ NUEVO: Finalizar edición de nota
+function finishNoteEdit(noteHead, originalPitch) {
+  if (!liveEditInput) return;
+  
+  const newPitch = liveEditInput.value.trim();
+  
+  // Validar formato básico
+  const valid = /^[A-G][#b]?\d+$/.test(newPitch);
+  
+  if (!valid || newPitch === originalPitch) {
+    liveEditInput.style.display = 'none';
+    console.log('[Note Edit] Edición cancelada o sin cambios');
+    return;
+  }
+  
+  // ✅ NUEVO: Guardar color si la nota ya tiene uno aplicado
+  const currentColor = noteHead.getAttribute('fill');
+  const closestLyric = findClosestLyricToNote(noteHead);
+  let lyricId = null;
+  
+  if (closestLyric && closestLyric.id) {
+    lyricId = closestLyric.id;
+    if (currentColor && currentColor !== 'currentColor' && currentColor !== 'black') {
+      noteColors[lyricId] = currentColor;
+      console.log(`[Note Color] 💾 Color guardado: ${lyricId} → ${currentColor}`);
+    }
+  }
+  
+  // Buscar la línea de código asociada a esta nota
+  if (closestLyric && closestLyric.dataset.codeLine) {
+    const lyricLine = parseInt(closestLyric.dataset.codeLine);
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
+    
+    // Buscar hacia arriba la declaración de la nota
+    for (let i = lyricLine; i >= Math.max(0, lyricLine - 5); i--) {
+      if (lines[i].includes('note.Note(')) {
+        // Actualizar el pitch en el código
+        lines[i] = lines[i].replace(
+          /note\.Note\(["'][A-G][#b]?\d+["']/,
+          `note.Note("${newPitch}"`
+        );
+        
+        window.setCodeEditorValue(lines.join('\n'));
+        console.log(`[Note Edit] ✅ Nota actualizada: ${originalPitch} → ${newPitch} (línea ${i})`);
+        
+        // Regenerar partitura
+        const renderBtn = document.getElementById('render-btn');
+        if (renderBtn) {
+          // ✅ Regenerar y restaurar colores después
+          setTimeout(() => {
+            renderBtn.click();
+            // Esperar a que termine el render para restaurar colores
+            setTimeout(() => restoreNoteColors(), 500);
+          }, 100);
+        }
+        
+        break;
+      }
+    }
+  } else {
+    console.warn('[Note Edit] ⚠️ No se pudo encontrar la línea de código de la nota');
+    alert('No se pudo actualizar la nota. Asegúrate de que la nota tiene un lyric asociado.');
+  }
+  
+  liveEditInput.style.display = 'none';
+}
+
+// ✅ NUEVO: Restaurar colores de notas después de regenerar
+function restoreNoteColors() {
+  if (Object.keys(noteColors).length === 0) {
+    console.log('[Note Color] No hay colores guardados para restaurar');
+    return;
+  }
+  
+  console.log(`[Note Color] 🎨 Restaurando ${Object.keys(noteColors).length} color(es)...`);
+  
+  // Para cada lyric con color guardado
+  Object.keys(noteColors).forEach(lyricId => {
+    const color = noteColors[lyricId];
+    const lyric = document.getElementById(lyricId);
+    
+    if (lyric) {
+      // Buscar la nota más cercana a este lyric
+      const noteHead = findNoteHeadFromLyric(lyric);
+      
+      if (noteHead) {
+        noteHead.setAttribute('fill', color);
+        console.log(`[Note Color] ✅ Color restaurado: ${lyricId} → ${color}`);
+      } else {
+        console.warn(`[Note Color] ⚠️ No se encontró nota para lyric ${lyricId}`);
+      }
+    } else {
+      console.warn(`[Note Color] ⚠️ Lyric ${lyricId} no encontrado después de render`);
+    }
+  });
+}
+
+// ✅ NUEVO: Encontrar cabeza de nota desde un lyric
+function findNoteHeadFromLyric(lyric) {
+  const svg = document.querySelector('#osmd-container svg');
+  if (!svg) return null;
+  
+  try {
+    const lyricRect = lyric.getBoundingClientRect();
+    const lyricX = lyricRect.left + lyricRect.width / 2;
+    const lyricY = lyricRect.top;
+    
+    // Buscar ellipses (cabezas de nota) ARRIBA del lyric
+    const noteHeads = svg.querySelectorAll('ellipse, path[d*="M"]');
+    let closestNote = null;
+    let minDistance = Infinity;
+    
+    noteHeads.forEach(noteHead => {
+      const noteRect = noteHead.getBoundingClientRect();
+      const noteX = noteRect.left + noteRect.width / 2;
+      const noteY = noteRect.top + noteRect.height / 2;
+      
+      // Solo considerar notas ARRIBA del lyric (Y menor)
+      if (noteY < lyricY) {
+        const distance = Math.sqrt(
+          Math.pow(lyricX - noteX, 2) +
+          Math.pow(lyricY - noteY, 2)
+        );
+        
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestNote = noteHead;
+        }
+      }
+    });
+    
+    return closestNote;
+  } catch (e) {
+    console.warn('[Find Note] Error:', e);
+    return null;
+  }
+}
+
+// ✅ NUEVO: Encontrar el lyric más cercano a una nota
+function findClosestLyricToNote(noteHead) {
+  const svg = document.querySelector('#osmd-container svg');
+  if (!svg) return null;
+  
+  try {
+    const noteRect = noteHead.getBoundingClientRect();
+    const noteY = noteRect.top + noteRect.height / 2;
+    const noteX = noteRect.left + noteRect.width / 2;
+    
+    const lyrics = svg.querySelectorAll('text');
+    let closestLyric = null;
+    let minDistance = Infinity;
+    
+    lyrics.forEach(lyric => {
+      // Solo considerar elementos con data-codeLine (lyrics del código)
+      if (!lyric.dataset.codeLine) return;
+      
+      const lyricRect = lyric.getBoundingClientRect();
+      const lyricY = lyricRect.top;
+      const lyricX = lyricRect.left + lyricRect.width / 2;
+      
+      // Solo considerar lyrics debajo de la nota
+      if (lyricY > noteY) {
+        const distance = Math.sqrt(
+          Math.pow(noteX - lyricX, 2) +
+          Math.pow(noteY - lyricY, 2)
+        );
+        
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestLyric = lyric;
+        }
+      }
+    });
+    
+    return closestLyric;
+  } catch (e) {
+    console.warn('[Find Lyric] Error:', e);
+    return null;
+  }
 }
 
 // Aplicar color a nota O texto seleccionado O multi-selección
@@ -1304,6 +1966,14 @@ document.getElementById('color-select')?.addEventListener('change', (e) => {
   if (selectedNoteElement) {
     selectedNoteElement.setAttribute('fill', color);
     selectedNoteElement.style.outline = '';
+    
+    // ✅ NUEVO: Guardar color para persistencia
+    const closestLyric = findClosestLyricToNote(selectedNoteElement);
+    if (closestLyric && closestLyric.id) {
+      noteColors[closestLyric.id] = color;
+      console.log(`[Color] 💾 Color guardado para persistencia: ${closestLyric.id} → ${color}`);
+    }
+    
     selectedNoteElement = null;
     console.log(`[Color] Aplicado a nota: ${color}`);
   }
@@ -1577,6 +2247,9 @@ function showMultipleSelectionPalette() {
     // ✅ Crear/actualizar bounding box
     createMultiSelectionBox();
     
+    // ✅ NUEVO: Resaltar MÚLTIPLES líneas en el código
+    highlightMultipleCodeLines();
+    
     // Calcular centro de todos los elementos seleccionados
     let sumX = 0, sumY = 0;
     const containerRect = document.querySelector('#score-output').getBoundingClientRect();
@@ -1598,6 +2271,69 @@ function showMultipleSelectionPalette() {
     console.log('[Multi-Select] Paleta y bounding box actualizados');
 }
 
+// ✅ NUEVO: Resaltar múltiples líneas en el código
+function highlightMultipleCodeLines() {
+    if (!window.codeMirrorEditor) return;
+    
+    // Limpiar todos los resaltados previos
+    clearCodeHighlight();
+    
+    // Recolectar todas las líneas de código de los elementos seleccionados
+    const lineNumbers = [];
+    selectedElements.forEach(el => {
+        if (el.dataset && el.dataset.codeLine !== undefined) {
+            const lineNum = parseInt(el.dataset.codeLine);
+            if (!isNaN(lineNum) && !lineNumbers.includes(lineNum)) {
+                lineNumbers.push(lineNum);
+            }
+        }
+    });
+    
+    if (lineNumbers.length === 0) {
+        console.log('[Multi-Highlight] No hay líneas vinculadas en selección múltiple');
+        return;
+    }
+    
+    // Resaltar todas las líneas
+    lineNumbers.forEach(lineNum => {
+        window.codeMirrorEditor.addLineClass(lineNum, 'background', 'highlighted-line');
+    });
+    
+    // Scroll a la primera línea (centrada)
+    if (lineNumbers.length > 0) {
+        const firstLine = Math.min(...lineNumbers);
+        scrollCodeToLine(firstLine);
+    }
+    
+    console.log(`[Multi-Highlight] ✅ ${lineNumbers.length} línea(s) resaltada(s): ${lineNumbers.join(', ')}`);
+}
+
+// ✅ NUEVO: Scroll mejorado y centrado para CodeMirror
+function scrollCodeToLine(lineNumber) {
+    if (!window.codeMirrorEditor) return;
+    
+    try {
+        // Obtener información del editor
+        const editor = window.codeMirrorEditor;
+        const scrollInfo = editor.getScrollInfo();
+        const lineHeight = editor.defaultTextHeight();
+        
+        // Calcular posición de la línea
+        const lineTop = lineNumber * lineHeight;
+        
+        // Calcular scroll para centrar
+        const editorMiddle = scrollInfo.clientHeight / 2;
+        const targetScroll = lineTop - editorMiddle + (lineHeight / 2);
+        
+        // Aplicar scroll
+        editor.scrollTo(null, Math.max(0, targetScroll));
+        
+        console.log(`[Scroll] ✅ Línea ${lineNumber} centrada (lineTop: ${lineTop}, scroll: ${targetScroll})`);
+    } catch (e) {
+        console.error('[Scroll] Error:', e);
+    }
+}
+
 // Adaptar funciones existentes para soportar selección múltiple
 const originalUpdateScale = updateScale;
 updateScale = function(factor) {
@@ -1609,9 +2345,14 @@ updateScale = function(factor) {
             edit.scale = (edit.scale || 1.0) * factor;
             edits[id] = edit;
             applyTransform(el);
+            
+            // ✅ UNIVERSAL: Actualizar Python tras escalar
+            if (el.tagName === 'text' && typeof window.updatePythonCode === 'function') {
+                window.updatePythonCode(el);
+                console.log(`[Scale Multi] ✅ Python actualizado para "${el.textContent.trim()}"`);
+            }
         });
         saveState();
-        console.log(`[Multi-Select] Escala aplicada a ${selectedElements.size} elemento(s)`);
     } else {
         originalUpdateScale(factor);
     }
@@ -1655,11 +2396,25 @@ function updateScaleMultiple(factor) {
         edit.scale = (edit.scale || 1.0) * factor;
         edits[id] = edit;
         applyTransform(el);
+        
+        // ✅ UNIVERSAL: Actualizar Python tras escalar
+        if (el.tagName === 'text' && typeof window.updatePythonCode === 'function') {
+            window.updatePythonCode(el);
+        }
     });
     
     saveState();
-    showMultipleSelectionPalette(); // Actualizar posición
-    console.log(`[Multi-Select] Escala ${factor > 1 ? 'aumentada' : 'reducida'} en ${selectedElements.size} elemento(s)`);
+    showMultipleSelectionPalette();
+    
+    // ✅ FIX: Mantener resaltado al escalar multi-selección
+    // Resaltar línea del primer elemento seleccionado
+    const firstElement = Array.from(selectedElements)[0];
+    if (firstElement && firstElement.dataset && firstElement.dataset.codeLine !== undefined) {
+        const lineNumber = parseInt(firstElement.dataset.codeLine);
+        highlightCodeLine(lineNumber, false);
+    }
+    
+    console.log(`[Multi-Select] Escala y Python actualizados para ${selectedElements.size} elemento(s)`);
 }
 
 function deleteMultipleElements() {
@@ -1771,35 +2526,31 @@ function hideContextMenu() {
     }
 }
 
-// Listener para menú contextual
+// Listener para menú contextual - SOLO en elementos de texto editables
 document.addEventListener('contextmenu', (e) => {
-    // ✅ NO mostrar menú si es sobre dropdown, toolbar o el SVG principal
-    const isOnSelectDropdown = e.target.closest('select');
-    const isOnToolbar = e.target.closest('#main-toolbar, #edit-palette, #multi-select-palette');
-    const isSVGMain = e.target.id === 'sheet-music-svg' || e.target.closest('#sheet-music-svg');
-    
-    if (isOnSelectDropdown || isOnToolbar || isSVGMain) {
-        console.log('[Context Menu] Click derecho en área no permitida, ignorado');
-        hideContextMenu();
-        return;
-    }
-    
-    // Solo mostrar en elementos seleccionables o si hay selección activa
+    // ✅ CRÍTICO: Solo activar menú en textos editables del score
     const clickedElement = e.target.closest('#osmd-container text, #annotation-svg text');
     
-    // ✅ Ocultar menú existente SIEMPRE
-    hideContextMenu();
-    
-    if (!clickedElement && selectedElements.size === 0 && !selectedElement) {
-        console.log('[Context Menu] Click derecho ignorado: sin elemento seleccionado');
-        return;
+    if (!clickedElement) {
+        console.log('[Context Menu] Click derecho fuera de texto editable, ignorado');
+        return; // Permitir menú nativo en otras áreas
     }
     
+    // ✅ Prevenir menú nativo SOLO en textos editables
     e.preventDefault();
     e.stopPropagation();
     
+    // Ocultar menú existente
+    hideContextMenu();
+    
+    // Verificar si hay algo seleccionado
+    if (selectedElements.size === 0 && !selectedElement) {
+        console.log('[Context Menu] Sin selección activa');
+        return;
+    }
+    
     showContextMenu(e.pageX, e.pageY);
-    console.log('[Context Menu] Menú activado');
+    console.log('[Context Menu] Menú activado en texto');
 });
 
 // ✅ MEJORADO: Cerrar menú contextual con cualquier click (incluyendo dentro del SVG)
@@ -1821,6 +2572,272 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// ====== EDICIÓN VISUAL DIRECTA DEL CÓDIGO ======
+let liveEditInput = null;
+let currentEditingElement = null;
+
+function showLiveEditInput(element) {
+    const scoreContainer = document.querySelector('#score-output');
+    if (!scoreContainer) return;
+    
+    // Obtener tipo de elemento
+    const elementId = element.id;
+    const elementType = detectElementType(element);
+    
+    console.log(`[Live Edit] Iniciando edición: ID=${elementId}, tipo=${elementType}`);
+    
+    // Resaltar línea en código
+    if (window.codeLineMap && window.codeLineMap[elementId]) {
+        highlightCodeLine(window.codeLineMap[elementId]);
+    }
+    
+    // Crear input si no existe
+    if (!liveEditInput) {
+        liveEditInput = document.createElement('input');
+        liveEditInput.type = 'text';
+        liveEditInput.style.cssText = `
+            position: absolute;
+            background: #fff;
+            color: #000;
+            border: 2px solid #667eea;
+            font-size: 18px;
+            padding: 8px 12px;
+            z-index: 3000;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-family: monospace;
+        `;
+        scoreContainer.appendChild(liveEditInput);
+    }
+    
+    // Posicionar sobre elemento
+    const elRect = element.getBoundingClientRect();
+    const containerRect = scoreContainer.getBoundingClientRect();
+    liveEditInput.style.left = `${elRect.left - containerRect.left}px`;
+    liveEditInput.style.top = `${elRect.top - containerRect.top - 40}px`;
+    
+    // Valor inicial
+    liveEditInput.value = element.textContent.trim();
+    liveEditInput.style.display = 'block';
+    liveEditInput.focus();
+    liveEditInput.select();
+    
+    currentEditingElement = element;
+    
+    // Listeners
+    liveEditInput.oninput = () => handleLiveEdit(element, elementType);
+    liveEditInput.onblur = () => finishLiveEdit(element);
+    liveEditInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            liveEditInput.blur();
+        } else if (e.key === 'Escape') {
+            cancelLiveEdit();
+        }
+    };
+}
+
+async function handleLiveEdit(element, elementType) {
+    const newValue = liveEditInput.value.trim();
+    
+    // Validar según tipo
+    if (elementType === 'ChordSymbol') {
+        const valid = await validateChord(newValue);
+        if (!valid) {
+            liveEditInput.style.borderColor = '#ff0000';
+            liveEditInput.style.background = '#ffe6e6';
+            return;
+        }
+    } else if (elementType === 'Note') {
+        const valid = await validateNote(newValue);
+        if (!valid) {
+            liveEditInput.style.borderColor = '#ff0000';
+            liveEditInput.style.background = '#ffe6e6';
+            return;
+        }
+    }
+    
+    // Válido → Resetear estilos
+    liveEditInput.style.borderColor = '#667eea';
+    liveEditInput.style.background = '#fff';
+    
+    // Actualizar DOM
+    element.textContent = newValue;
+    
+    // Actualizar código Python EN VIVO
+    if (window.codeLineMap && window.codeLineMap[element.id] !== undefined) {
+        updateCodeLineLive(window.codeLineMap[element.id], newValue, elementType);
+    }
+}
+
+function finishLiveEdit(element) {
+    if (!liveEditInput || !currentEditingElement) return;
+    
+    liveEditInput.style.display = 'none';
+    currentEditingElement = null;
+    
+    // Guardar en edits
+    const id = element.id;
+    if (!edits[id]) edits[id] = { x: 0, y: 0, scale: 1.0 };
+    edits[id].textContent = element.textContent.trim();
+    
+    // Regenerar partitura
+    regenerateScore();
+    
+    // Limpiar resaltado
+    clearCodeHighlight();
+}
+
+function cancelLiveEdit() {
+    if (liveEditInput) {
+        liveEditInput.style.display = 'none';
+    }
+    currentEditingElement = null;
+    clearCodeHighlight();
+}
+
+function detectElementType(element) {
+    // Usar codeLineMap para determinar tipo
+    const elementId = element.id;
+    if (!window.codeLineMap || !elementId) return 'Text';
+    
+    const lineNumber = window.codeLineMap[elementId];
+    if (lineNumber === undefined) return 'Text';
+    
+    return detectElementTypeFromLine(lineNumber);
+}
+
+// ✅ NUEVO: Detectar tipo desde número de línea
+function detectElementTypeFromLine(lineNumber) {
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
+    
+    if (lineNumber < 0 || lineNumber >= lines.length) return 'Text';
+    
+    // Buscar hacia arriba desde la línea
+    for (let i = lineNumber; i >= Math.max(0, lineNumber - 10); i--) {
+        const line = lines[i];
+        if (line.includes('ChordSymbol(')) return 'ChordSymbol';
+        if (line.includes('TextExpression(')) return 'TextExpression';
+        if (line.includes('note.Note(')) return 'Note';
+        if (line.includes('.title')) return 'Title';
+        if (line.includes('.lyric')) return 'Lyric';
+    }
+    
+    return 'Text';
+}
+
+async function validateChord(text) {
+    if (!text.trim()) return false;
+    
+    try {
+        const resp = await fetch('/validate-chord', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+        const data = await resp.json();
+        return data.valid;
+    } catch (e) {
+        console.error('[Validate] Error:', e);
+        return false;
+    }
+}
+
+async function validateNote(text) {
+    if (!text.trim()) return false;
+    
+    try {
+        const resp = await fetch('/validate-note', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+        const data = await resp.json();
+        return data.valid;
+    } catch (e) {
+        console.error('[Validate] Error:', e);
+        return false;
+    }
+}
+
+function updateCodeLineLive(lineNumber, newValue, elementType) {
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
+    
+    if (lineNumber < 0 || lineNumber >= lines.length) return;
+    
+    // Actualizar según tipo
+    if (elementType === 'ChordSymbol') {
+        lines[lineNumber] = lines[lineNumber].replace(/\(["'](.+?)["']\)/, `("${newValue}")`);
+    } else if (elementType === 'TextExpression') {
+        lines[lineNumber] = lines[lineNumber].replace(/\(["'](.+?)["']\)/, `("${newValue}")`);
+    } else if (elementType === 'Note') {
+        lines[lineNumber] = lines[lineNumber].replace(/Note\(["'](.+?)["']/, `Note("${newValue}"`);
+    } else if (elementType === 'Title') {
+        lines[lineNumber] = lines[lineNumber].replace(/=\s*["'].*["']/, `= "${newValue}"`);
+    }
+    
+    window.setCodeEditorValue(lines.join('\n'));
+    console.log(`[Live Edit] Código actualizado: línea ${lineNumber} → "${newValue}"`);
+}
+
+function regenerateScore() {
+    // Simular click en botón render
+    const renderBtn = document.getElementById('render-btn');
+    if (renderBtn) {
+        renderBtn.click();
+        console.log('[Live Edit] Partitura regenerada');
+    }
+}
+
+// Modificar el doble click para usar el nuevo sistema
+const originalEditTextInPlace = editTextInPlace;
+editTextInPlace = function(existingElement, points) {
+    // Usar nuevo sistema si es un elemento OSMD con ID mapeado
+    if (existingElement && window.codeLineMap && window.codeLineMap[existingElement.id] !== undefined) {
+        showLiveEditInput(existingElement);
+        return;
+    }
+    
+    // Fallback a sistema original para elementos manuales
+    originalEditTextInPlace(existingElement, points);
+};
+
+// ====== FUNCIÓN PARA ACTUALIZAR CÓDIGO EN TIEMPO REAL ======
+function updateCodeLineDirectly(lineNumber, newText) {
+    const code = window.getCodeEditorValue();
+    const lines = code.split('\n');
+    
+    if (lineNumber < 0 || lineNumber >= lines.length) {
+        console.warn(`[updateCodeLineDirectly] Línea ${lineNumber} fuera de rango`);
+        return;
+    }
+    
+    const originalLine = lines[lineNumber];
+    
+    // ✅ MEJORADO: Buscar cualquier texto entre comillas (vacío o no)
+    // Usar regex global para asegurar reemplazo
+    let updatedLine = originalLine;
+    
+    // Intentar con comillas dobles primero
+    if (originalLine.includes('"')) {
+        updatedLine = originalLine.replace(/"[^"]*"/, `"${newText}"`);
+    }
+    // Si no, intentar con comillas simples
+    else if (originalLine.includes("'")) {
+        updatedLine = originalLine.replace(/'[^']*'/, `'${newText}'`);
+    }
+    
+    if (updatedLine !== originalLine) {
+        lines[lineNumber] = updatedLine;
+        window.setCodeEditorValue(lines.join('\n'));
+        console.log(`[updateCodeLineDirectly] ✅ Línea ${lineNumber}: "${newText}"`);
+    } else {
+        console.warn(`[updateCodeLineDirectly] ⚠️ No se pudo actualizar línea ${lineNumber}`);
+    }
+}
+
+
 // Exponer funciones globalmente
 window.initEditing = initEditing;
 window.selectElement = selectElement;
@@ -1838,3 +2855,7 @@ window.updateScaleMultiple = updateScaleMultiple;
 window.deleteMultipleElements = deleteMultipleElements;
 window.copySelectedElement = copySelectedElement;
 window.pasteFromClipboard = pasteFromClipboard;
+window.showLiveEditInput = showLiveEditInput;
+window.highlightCodeLine = highlightCodeLine;
+window.clearCodeHighlight = clearCodeHighlight;
+window.updateCodeLineDirectly = updateCodeLineDirectly;
