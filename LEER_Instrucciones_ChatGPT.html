@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Guía exprés · Proyecto Score Viewer</title>
+<style>
+:root{
+  --bg:#f8faff; --panel:#ffffff; --text:#1d2330; --muted:#5b6576;
+  --accent:#2d6cf6; --border:#dfe5f5; --code-bg:#f0f4ff; --code-bd:#c9d6f8;
+  --radius:14px; --shadow:0 4px 18px rgba(0,0,0,.08);
+}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);
+  font:17px/1.7 "Segoe UI", Roboto, Helvetica, Arial, sans-serif}
+.container{max-width:880px;margin:0 auto;padding:32px 18px 64px}
+.hero{background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow);
+  border-radius:var(--radius);padding:28px;display:grid;gap:10px;margin-bottom:20px}
+.hero h1{margin:0;font-size:clamp(24px,3.2vw,34px);line-height:1.25}
+.hero p{margin:0;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--border);box-shadow:var(--shadow);
+  border-radius:var(--radius);padding:22px;margin-top:20px}
+.card h2{margin:0 0 12px;font-size:20px}
+.card p{margin:0 0 10px;color:var(--muted)}
+.copy-box{
+  background:var(--code-bg);border:2px solid var(--code-bd);
+  border-radius:12px;padding:16px;margin-top:14px;position:relative
+}
+.copy-box pre{margin:0;white-space:pre-wrap;line-height:1.6;font-size:15px}
+.toolbar{position:absolute;top:10px;right:10px}
+.btn{cursor:pointer;border:none;background:var(--accent);color:#fff;
+  font-weight:600;padding:6px 12px;border-radius:8px;font-size:14px}
+.btn:hover{opacity:.9}
+ul,ol{padding-left:22px;margin:8px 0 0}
+.footer{margin-top:24px;color:var(--muted);font-size:14px;text-align:center}
+</style>
+</head>
+<body>
+  <div class="container">
+    <section class="hero">
+      <h1>Guía de configuración de proyecto Chat GPT para Score Viewer</h1>
+      <p>3 pasos simples para montar tu proyecto en ChatGPT y usar <em>music21</em> sin liarte.</p>
+    </section>
+
+    <section class="card">
+      <h2>1) Archivos</h2>
+      <p>Sube estos dos ficheros en la sección <b>Archivos</b> de tu proyecto:</p>
+      <ul>
+        <li><b>PROMPT_CHATGPT_FINAL.md</b> → reglas detalladas.</li>
+        <li><b>music21_rules.json</b> → banderas y validación.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>2) Instrucciones del proyecto</h2>
+      <p>Pega este bloque en <b>Configuración → Instrucciones</b>. Es lo que ChatGPT verá siempre:</p>
+      <div class="copy-box">
+        <div class="toolbar"><button class="btn" onclick="copy('#instr')">Copiar</button></div>
+<pre id="instr">Rol: Generador de ejercicios y composiciones con music21 para app Score Viewer.
+Obedece SIEMPRE las reglas de PROMPT_CHATGPT_FINAL.md y music21_rules.json.
+
+Reglas clave:
+1) Sin bucles ni listas de comprensión.
+2) IDs únicos en formato {tipo}-m{compás}-{ordinal}.
+3) Textos siempre en offset 0; ChordSymbols con offsets solo si hay varios por compás.
+4) TimeSignature SOLO en el primer compás de cada parte.
+5) Usar Unicode ♭♯♮ en lyrics/intervalos.
+6) Título obligatorio y terminar con `score = s`.
+7) Si incumples alguna regla → devuelve lista de errores + versión corregida.</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3) Mensaje semilla</h2>
+      <p>Al abrir un chat nuevo dentro del proyecto, envía este mensaje como primer paso:</p>
+      <div class="copy-box">
+        <div class="toolbar"><button class="btn" onclick="copy('#semilla')">Copiar</button></div>
+<pre id="semilla">Primero, resume en 6 puntos las reglas que has aprendido de PROMPT_CHATGPT_FINAL.md y music21_rules.json.
+Después, genera un ejemplo mínimo con music21:
+- Un compás de Cmaj7 en 4/4
+- 4 negras (C4, D4, E4, F4)
+- Incluir título, clave, armadura, tempo con id, ChordSymbol con id, y terminar con `score = s`.
+Debe cumplir TODAS las reglas (sin bucles, IDs únicos, textos en offset 0, timeSignature solo en el primer compás, Unicode ♭♯♮ si procede).
+Si incumples alguna regla, primero devuelve lista de errores y luego la versión corregida.
+Además de las reglas de notación, consulta las guías de composición clásica y moderna en Documentos para aplicar las reglas estilísticas.</pre>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>4) Flujo de uso</h2>
+      <ol>
+        <li><b>Configura</b>: sube archivos y pega instrucciones.</li>
+        <li><b>Inicia</b>: usa el mensaje semilla una sola vez al empezar un chat.</li>
+        <li><b>Trabaja</b>: pide ejercicios o composiciones; no repitas el semilla salvo que abras otro chat nuevo.</li>
+      </ol>
+    </section>
+
+    <p class="footer">© Guía exprés · Score Viewer × ChatGPT Projects</p>
+  </div>
+
+<script>
+function copy(selector){
+  const el=document.querySelector(selector);
+  if(!el) return;
+  const text=el.innerText;
+  navigator.clipboard.writeText(text).then(()=>{
+    alert("Copiado al portapapeles");
+  });
+}
+</script>
+</body>
+</html>

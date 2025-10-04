@@ -1,0 +1,70 @@
+{
+  "description": "Reglas de validación para generación de código music21",
+  "version": "1.0.0",
+  "target_music21_version": ">=7.0.0",
+  
+  "rules": {
+    "no_loops": true,
+    "require_unique_ids": true,
+    "text_at_offset_zero": true,
+    "chords_allow_multi_offsets": true,
+    "timesig_first_measure_only": true,
+    "require_title": true,
+    "require_final_score_assignment": "score = s",
+    "forbid_semicolon_concat": true,
+    "unicode_accidentals_only": true,
+    "no_measure_numbering": true
+  },
+  
+  "id_format": {
+    "regex": "^[a-z0-9\\-]+$",
+    "pattern": "{tipo}-m{compas}-{ordinal}",
+    "examples": {
+      "valid": ["cifrado-m1-0", "grado-m2-1", "tempo-global"],
+      "invalid": ["Cifrado-M1-0", "grado m2 1", "tempo_global"]
+    }
+  },
+  
+  "canonical_imports": [
+    "stream",
+    "note",
+    "chord",
+    "expressions",
+    "harmony",
+    "tempo",
+    "clef",
+    "key",
+    "meter"
+  ],
+  
+  "optional_imports": {
+    "duration": "Only if explicitly needed",
+    "bar": "Only if explicitly needed",
+    "converter": "Only for parsing external files",
+    "roman": "Only for Roman numeral analysis (classical)"
+  },
+  
+  "unicode_symbols": {
+    "flat": "♭ (U+266D)",
+    "sharp": "♯ (U+266F)",
+    "natural": "♮ (U+266E)"
+  },
+  
+  "time_signatures": {
+    "common": {
+      "4/4": "4 quarter notes = 4.0 quarterLength",
+      "3/4": "3 quarter notes = 3.0 quarterLength",
+      "6/8": "6 eighth notes = 3.0 quarterLength (special)",
+      "8/4": "8 quarter notes = 8.0 quarterLength (for scales)"
+    }
+  },
+  
+  "validation_checklist": [
+    "Título presente",
+    "Sin bucles",
+    "IDs únicos para todos los textos",
+    "Textos en offset 0",
+    "TimeSignature solo en primer compás",
+    "Línea final 'score = s'"
+  ]
+}
